@@ -5968,7 +5968,7 @@ function TVDisplay({
       accent: false
     });
     return cols.map(col => {
-      const matches = col.kind === "p3" ? [resolved.find(m => m.id === "p3")].filter(Boolean) : resolved.filter(m => m.round === col.r);
+      const matches = col.kind === "p3" ? [resolved.find(m => m.id === "p3")].filter(Boolean) : resolved.filter(m => m.round === col.r && m.id !== "p3");
       return /*#__PURE__*/React.createElement("div", {
         className: "tv-ko-round",
         key: col.key
@@ -7029,7 +7029,7 @@ function AdminApp({
       accent: false
     });
     return cols.map(col => {
-      const matches = col.kind === "p3" ? [resolved.find(m => m.id === "p3")].filter(Boolean) : resolved.filter(m => m.round === col.r);
+      const matches = col.kind === "p3" ? [resolved.find(m => m.id === "p3")].filter(Boolean) : resolved.filter(m => m.round === col.r && m.id !== "p3");
       return /*#__PURE__*/React.createElement("div", {
         className: "ko-round",
         key: col.key
