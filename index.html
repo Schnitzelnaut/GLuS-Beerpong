@@ -6360,8 +6360,12 @@ function AdminApp({
   const [koScores, setKoScores] = useState({});
   const ppg = Math.floor(numPlayers / numGroups);
   const totalAdv = numGroups * advPerGroup;
-  const koSize = Math.pow(2, Math.ceil(Math.log2(Math.max(2, totalAdv))));
-  const koRounds = Math.log2(koSize);
+  // For ko_only: bracket size comes from numPlayers directly
+  // For groups_ko: bracket size from advancing teams
+  // When koMatches exist: derive from actual matches
+  const effectiveKoSize = koMatches ? Math.pow(2, Math.round(Math.log2(koMatches.filter(m => m.id !== "p3" && m.round === 0).length * 2))) : tournamentFormat === "ko_only" ? Math.pow(2, Math.ceil(Math.log2(Math.max(2, numPlayers)))) : Math.pow(2, Math.ceil(Math.log2(Math.max(2, totalAdv))));
+  const koSize = koMatches ? effectiveKoSize : Math.pow(2, Math.ceil(Math.log2(Math.max(2, totalAdv))));
+  const koRounds = Math.log2(effectiveKoSize);
   const getRoundName = (r, rounds) => {
     const total = rounds ?? koRounds ?? 3;
     const fromEnd = total - 1 - r;
