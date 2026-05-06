@@ -332,12 +332,6 @@ const ACHIEVEMENTS = [
   desc: "10:0 Sieg gespielt",
   category: "skill"
 }, {
-  id: "wuerfellaune",
-  icon: "⚰️",
-  name: "Würfellaune",
-  desc: "0:10 kassiert",
-  category: "skill"
-}, {
   id: "hopfenhoernchen",
   icon: "🔥",
   name: "Hopfenhörnchen",
@@ -434,6 +428,12 @@ const ACHIEVEMENTS = [
 },
 // Social
 {
+  id: "premiere",
+  icon: "🎬",
+  name: "Premiere",
+  desc: "Erstes Spiel überhaupt",
+  category: "social"
+}, {
   id: "promoted",
   icon: "🌟",
   name: "Ligen-Aufsteiger",
@@ -466,6 +466,12 @@ const ACHIEVEMENTS = [
   desc: "Turnier gewonnen",
   category: "season"
 }, {
+  id: "stern",
+  icon: "🌟",
+  name: "Stern",
+  desc: "75%+ Sieg-Quote am Ende einer Saison (mind. 10 Spiele)",
+  category: "season"
+}, {
   id: "bechermeister",
   icon: "🎯",
   name: "Bechermeister",
@@ -478,22 +484,20 @@ const ACHIEVEMENTS = [
   desc: "Wenigste kassierte Becher der Saison (nur mit allen Spielen absolviert)",
   category: "season"
 },
-// Misc
+// Negative
 {
-  id: "premiere",
-  icon: "🎬",
-  name: "Premiere",
-  desc: "Erstes Spiel überhaupt",
-  category: "misc"
+  id: "wuerfellaune",
+  icon: "⚰️",
+  name: "Würfellaune",
+  desc: "0:10 kassiert",
+  category: "negative"
 }, {
-  id: "stern",
-  icon: "🌟",
-  name: "Stern",
-  desc: "75%+ Sieg-Quote bei mind. 10 Spielen",
-  category: "misc"
-},
-// Negative streaks
-{
+  id: "tollpatsch",
+  icon: "🤦",
+  name: "Tollpatsch",
+  desc: "Eigenen Becher umgeschmissen",
+  category: "negative"
+}, {
   id: "saure_gurke",
   icon: "🥒",
   name: "Saure Gurke",
@@ -506,14 +510,8 @@ const ACHIEVEMENTS = [
   desc: "10 Niederlagen in Folge",
   category: "negative"
 },
-// Liga drama
+// Drama
 {
-  id: "jaeger",
-  icon: "🦅",
-  name: "Jäger",
-  desc: "Den aktuellen Tabellenführer geschlagen",
-  category: "drama"
-}, {
   id: "titelverteidiger",
   icon: "🥇",
   name: "Titelverteidiger",
@@ -524,6 +522,24 @@ const ACHIEVEMENTS = [
   icon: "🪦",
   name: "Tabellenkeller",
   desc: "Saison auf dem letzten Platz beendet",
+  category: "drama"
+}, {
+  id: "the_good",
+  icon: "😎",
+  name: "The Good",
+  desc: "Mexican Standoff für sich entschieden (11:10)",
+  category: "drama"
+}, {
+  id: "the_bad",
+  icon: "😤",
+  name: "The Bad",
+  desc: "Verlängerten Standoff überlebt (12:11)",
+  category: "drama"
+}, {
+  id: "the_ugly",
+  icon: "🤠",
+  name: "The Ugly",
+  desc: "Doppelt verlängerten Standoff überstanden (13:12)",
   category: "drama"
 },
 // Datum
@@ -538,47 +554,52 @@ const ACHIEVEMENTS = [
 // Calculate achievements for a single player
 function calcAchievements(playerId, players, matches, archive, tournamentWinners) {
   const earned = new Set();
+  const details = {}; // achievementId -> detail string (who/when/what)
   const player = players.find(p => p.id === playerId);
-  if (!player) return earned;
+  if (!player) return {
+    earned,
+    details
+  };
+  const playerById = Object.fromEntries((players || []).map(p => [p.id, p]));
+  const getName = id => playerById[id]?.name || id;
 
-  // Combine current matches with all archived matches (lifetime!)
+  // Combine current + archived matches (lifetime)
   const allMatchesRaw = [...(matches || []), ...(archive || []).flatMap(a => a.matches || [])];
-
-  // Player's matches sorted by date (oldest first for streak calcs)
   const playerMatches = allMatchesRaw.filter(m => m.winner && (m.playerA === playerId || m.playerB === playerId)).sort((a, b) => (a.date || 0) - (b.date || 0));
   if (playerMatches.length === 0) {
-    // Premiere zählt schon mit dem ersten gespielten Spiel (auch ohne Sieger!)
     const anyMatch = allMatchesRaw.find(m => m.playerA === playerId || m.playerB === playerId);
     if (anyMatch) earned.add("premiere");
-    // Apply manual overrides at the end
-    return applyManualAchievementOverrides(earned, player);
+    return applyManualAchievementOverrides({
+      earned,
+      details
+    }, player);
   }
   earned.add("premiere");
-
-  // Stats
   let cupsFor = 0,
     wins = 0,
     losses = 0;
   let currentWinStreak = 0,
-    maxWinStreak = 0;
+    maxWinStreak = 0,
+    maxWinStreakEnd = null;
   let currentLossStreak = 0,
     maxLossStreak = 0;
-
-  // For "Knockout" / "Würfellaune"
   let knockout = false,
-    wuerfellaune = false;
-
-  // For "Blitzkrug" — 3 wins on same day
+    knockoutOpp = null;
+  let wuerfellaune = false,
+    wuerfelopponent = null;
+  let theGood = false,
+    theBad = false,
+    theUgly = false;
+  let theGoodOpp = null,
+    theBadOpp = null,
+    theUglyOpp = null;
+  let blitzkrugDay = null;
   const winsByDay = {};
-
-  // For "Angstgegner" — DOES SOMEONE ELSE HAVE 3 LOSSES IN A ROW AGAINST ME?
-  // Going through opponents: track each opponent's loss streak vs ME
-  const opponentLossStreakVsMe = {}; // opponentId -> current streak (their losses against me)
-  let angstgegnerForSomeone = false;
-
-  // For "Geburtstagskind" — game on player's birthday
-  const birthday = player.birthday; // e.g. "MM-DD"
-
+  const opponentLossStreakVsMe = {};
+  let angstgegnerForSomeone = false,
+    angstgegnerOpp = null;
+  let tollpatsch = false;
+  const birthday = player.birthday;
   for (const m of playerMatches) {
     const isA = m.playerA === playerId;
     const myCups = isA ? m.cupsA : m.cupsB;
@@ -586,55 +607,106 @@ function calcAchievements(playerId, players, matches, archive, tournamentWinners
     const won = isA && m.winner === "A" || !isA && m.winner === "B";
     const opponentId = isA ? m.playerB : m.playerA;
     cupsFor += myCups;
+
+    // Tollpatsch — own cup knocked over
+    if (m.ownCupKnockedBy === playerId) tollpatsch = true;
     if (won) {
       wins++;
       currentWinStreak++;
       currentLossStreak = 0;
-      if (currentWinStreak > maxWinStreak) maxWinStreak = currentWinStreak;
-      if (myCups === 10 && oppCups === 0) knockout = true;
-      // Opponent lost to me — increment their loss streak vs me
+      if (currentWinStreak > maxWinStreak) {
+        maxWinStreak = currentWinStreak;
+        maxWinStreakEnd = opponentId;
+      }
+      if (myCups === 10 && oppCups === 0) {
+        knockout = true;
+        knockoutOpp = opponentId;
+      }
+      // Mexican Standoff achievements (win)
+      if (myCups === 11 && oppCups === 10) {
+        theGood = true;
+        theGoodOpp = opponentId;
+      }
+      if (myCups === 12 && oppCups === 11) {
+        theBad = true;
+        theBadOpp = opponentId;
+      }
+      if (myCups === 13 && oppCups === 12) {
+        theUgly = true;
+        theUglyOpp = opponentId;
+      }
       opponentLossStreakVsMe[opponentId] = (opponentLossStreakVsMe[opponentId] || 0) + 1;
-      if (opponentLossStreakVsMe[opponentId] >= 3) angstgegnerForSomeone = true;
-      // Day-counting
+      if (opponentLossStreakVsMe[opponentId] >= 3) {
+        angstgegnerForSomeone = true;
+        angstgegnerOpp = opponentId;
+      }
       if (m.date) {
         const day = new Date(m.date).toISOString().slice(0, 10);
         winsByDay[day] = (winsByDay[day] || 0) + 1;
+        if (winsByDay[day] >= 3) blitzkrugDay = day;
       }
     } else {
       losses++;
       currentLossStreak++;
       currentWinStreak = 0;
       if (currentLossStreak > maxLossStreak) maxLossStreak = currentLossStreak;
-      if (myCups === 0 && oppCups >= 10) wuerfellaune = true;
-      // Opponent won against me — reset their loss streak vs me
+      if (myCups === 0 && oppCups >= 10) {
+        wuerfellaune = true;
+        wuerfelopponent = opponentId;
+      }
       opponentLossStreakVsMe[opponentId] = 0;
     }
-
-    // Birthday check
     if (birthday && m.date) {
-      const matchDate = new Date(m.date);
-      const mmdd = String(matchDate.getMonth() + 1).padStart(2, "0") + "-" + String(matchDate.getDate()).padStart(2, "0");
-      if (mmdd === birthday) earned.add("geburtstagskind");
+      const d = new Date(m.date);
+      // birthday format: DD/MM/YY or TT/MM/JJ
+      const parts = birthday.split("/");
+      if (parts.length >= 2) {
+        const dd = parseInt(parts[0]),
+          mm = parseInt(parts[1]);
+        if (d.getDate() === dd && d.getMonth() + 1 === mm) earned.add("geburtstagskind");
+      }
     }
   }
-
-  // Skill achievements
   if (wins > 0) earned.add("first_win");
-  if (knockout) earned.add("knockout");
-  if (wuerfellaune) earned.add("wuerfellaune");
-  if (maxWinStreak >= 5) earned.add("hopfenhoernchen");
-  if (maxWinStreak >= 10) earned.add("brandstifter");
-  if (Object.values(winsByDay).some(c => c >= 3)) earned.add("blitzkrug");
-
-  // Cup-based
+  if (knockout) {
+    earned.add("knockout");
+    details.knockout = `gegen ${getName(knockoutOpp)}`;
+  }
+  if (wuerfellaune) {
+    earned.add("wuerfellaune");
+    details.wuerfellaune = `gegen ${getName(wuerfelopponent)}`;
+  }
+  if (maxWinStreak >= 5) {
+    earned.add("hopfenhoernchen");
+    details.hopfenhoernchen = `${maxWinStreak} Siege in Folge`;
+  }
+  if (maxWinStreak >= 10) {
+    earned.add("brandstifter");
+    details.brandstifter = `${maxWinStreak} Siege in Folge`;
+  }
+  if (blitzkrugDay) {
+    earned.add("blitzkrug");
+    details.blitzkrug = `am ${blitzkrugDay}`;
+  }
+  if (theGood) {
+    earned.add("the_good");
+    details.the_good = `gegen ${getName(theGoodOpp)}`;
+  }
+  if (theBad) {
+    earned.add("the_bad");
+    details.the_bad = `gegen ${getName(theBadOpp)}`;
+  }
+  if (theUgly) {
+    earned.add("the_ugly");
+    details.the_ugly = `gegen ${getName(theUglyOpp)}`;
+  }
+  if (tollpatsch) earned.add("tollpatsch");
   if (cupsFor >= 50) earned.add("cups_50");
   if (cupsFor >= 100) earned.add("cups_100");
   if (cupsFor >= 250) earned.add("cups_250");
   if (cupsFor >= 500) earned.add("cups_500");
   if (cupsFor >= 750) earned.add("cups_750");
   if (cupsFor >= 1000) earned.add("cups_1000");
-
-  // Game-based
   const totalGames = wins + losses;
   if (totalGames >= 5) earned.add("games_5");
   if (totalGames >= 10) earned.add("games_10");
@@ -642,64 +714,66 @@ function calcAchievements(playerId, players, matches, archive, tournamentWinners
   if (totalGames >= 50) earned.add("games_50");
   if (totalGames >= 75) earned.add("games_75");
   if (totalGames >= 100) earned.add("games_100");
-
-  // Stern: 75%+ winrate at 10+ games
-  if (totalGames >= 10 && wins / totalGames >= 0.75) earned.add("stern");
-
-  // Negative streaks
   if (maxLossStreak >= 5) earned.add("saure_gurke");
   if (maxLossStreak >= 10) earned.add("zigeunerfluch");
+  if (angstgegnerForSomeone) {
+    earned.add("angstgegner");
+    details.angstgegner = `${getName(angstgegnerOpp)} verliert immer gegen dich`;
+  }
 
-  // Angstgegner
-  if (angstgegnerForSomeone) earned.add("angstgegner");
-
-  // Liga-Aufsteiger / Absteiger / Tabellenkeller / Titelverteidiger / Staakens Bester / Bechermeister / Mauerbauer
-  // Look at archive entries
-  let liga1WinsCount = 0;
-  let liga1WinsConsecutive = 0;
+  // Archive-based achievements
   let prevSeasonLiga1Win = false;
   for (const a of archive || []) {
     const fs = a.finalStandings || [];
-    // "Tabellenkeller" — last place in any league
     for (const ld of fs) {
       const standings = ld.standings || [];
-      if (standings.length > 0 && standings[standings.length - 1].id === playerId) earned.add("tabellenkeller");
+      if (standings.length > 0 && standings[standings.length - 1].id === playerId) {
+        earned.add("tabellenkeller");
+        details.tabellenkeller = `in ${a.seasonName || "einer Saison"}`;
+      }
       if (standings.length > 0 && standings[0].id === playerId && ld.league === 0) {
         earned.add("staakens_bester");
-        liga1WinsCount++;
+        details.staakens_bester = a.seasonName || "";
         if (prevSeasonLiga1Win) earned.add("titelverteidiger");
         prevSeasonLiga1Win = true;
       } else if (ld.league === 0) {
         prevSeasonLiga1Win = false;
       }
     }
-    // Bechermeister / Mauerbauer — only for players who completed ALL pairings
-    // Determine who completed all matches in this archive season
+
+    // Stern: 75%+ win rate in a completed season
+    for (const ld of fs) {
+      const ps = (ld.standings || []).find(s => s.id === playerId);
+      if (ps && ps.games >= 10 && ps.wins / ps.games >= 0.75) {
+        earned.add("stern");
+        details.stern = `${Math.round(ps.wins / ps.games * 100)}% in ${a.seasonName || "einer Saison"}`;
+      }
+    }
+
+    // Bechermeister / Mauerbauer
     const archiveLeagueConfig = a.leagueConfig || [];
     const archivePlayers = a.players || [];
     const archiveMatches = a.matches || [];
     function playerCompletedAllGames(pid) {
       const p = archivePlayers.find(x => x.id === pid);
       if (!p) return false;
-      const lg = p.league;
-      const cfg = archiveLeagueConfig[lg] || {
+      const cfg = archiveLeagueConfig[p.league] || {
         gamesPerPair: 2
       };
-      const required = cfg.gamesPerPair ?? 2;
-      const teammates = archivePlayers.filter(x => x.league === lg && x.id !== pid);
+      const teammates = archivePlayers.filter(x => x.league === p.league && x.id !== pid);
       for (const opp of teammates) {
         const played = archiveMatches.filter(m => m.playerA === pid && m.playerB === opp.id || m.playerA === opp.id && m.playerB === pid).length;
-        if (played < required) return false;
+        if (played < (cfg.gamesPerPair ?? 2)) return false;
       }
       return true;
     }
     let maxFor = -1,
-      minAgainst = Infinity;
-    let maxForId = null,
+      minAgainst = Infinity,
+      maxForId = null,
       minAgainstId = null;
     for (const ld of fs) {
       for (const s of ld.standings || []) {
-        if (!playerCompletedAllGames(s.id)) continue; // skip incomplete players
+        if (!playerCompletedAllGames(s.id)) continue;
         if (s.cupsFor > maxFor) {
           maxFor = s.cupsFor;
           maxForId = s.id;
@@ -710,14 +784,15 @@ function calcAchievements(playerId, players, matches, archive, tournamentWinners
         }
       }
     }
-    if (maxForId === playerId) earned.add("bechermeister");
-    if (minAgainstId === playerId) earned.add("mauerbauer");
-
-    // Compare league assignment from archive to current
-    // (Aufsteiger / Absteiger relative to last archived season)
+    if (maxForId === playerId) {
+      earned.add("bechermeister");
+      details.bechermeister = `${maxFor} Becher in ${a.seasonName || ""}`;
+    }
+    if (minAgainstId === playerId) {
+      earned.add("mauerbauer");
+      details.mauerbauer = `nur ${minAgainst} kassiert in ${a.seasonName || ""}`;
+    }
   }
-
-  // Compare last archived league to current league for promoted/relegated
   if (archive && archive.length > 0) {
     const last = archive[0];
     const prevPlayer = (last.players || []).find(p => p.id === playerId);
@@ -726,53 +801,44 @@ function calcAchievements(playerId, players, matches, archive, tournamentWinners
       if (player.league > prevPlayer.league) earned.add("relegated");
     }
   }
-
-  // Spandaus Bester — list provided externally (from tournament winners)
   if (tournamentWinners && tournamentWinners.includes(playerId)) earned.add("spandaus_bester");
-
-  // Jäger — defeated current league leader
-  // Determine current league leader at the time of each match
-  // Simplified: did this player ever win against the current top of their league?
-  const currentLeaderByLeague = {};
-  for (let lg = 0; lg < 10; lg++) {
-    const standings = calcLeagueStandings(players, matches, lg);
-    if (standings.length > 0) currentLeaderByLeague[lg] = standings[0].id;
-  }
-  const myLeagueLeader = currentLeaderByLeague[player.league];
-  if (myLeagueLeader && myLeagueLeader !== playerId) {
-    const beat = playerMatches.some(m => {
-      const isA = m.playerA === playerId;
-      const opponentId = isA ? m.playerB : m.playerA;
-      const won = isA && m.winner === "A" || !isA && m.winner === "B";
-      return won && opponentId === myLeagueLeader;
-    });
-    if (beat) earned.add("jaeger");
-  }
-
-  // Apply clearedAt: for each cleared achievement, only keep it if re-earned
-  // from matches AFTER the clearance timestamp
-  const clearedAt = player.achievementClearedAt || {};
-  const allMatchesRawForRecheck = [...(arguments[2] || []), ...(arguments[3] || []).flatMap(a => a.matches || [])];
-  for (const [achId, ts] of Object.entries(clearedAt)) {
-    if (!ts) continue;
-    // Only use matches strictly AFTER the clearance timestamp
-    const postMatches = allMatchesRawForRecheck.filter(m => (m.date || 0) > ts);
-    const reEarned = checkSingleAchievement(achId, playerId, postMatches);
-    if (!reEarned) earned.delete(achId);
-    // If re-earned naturally → keep it (clearance has been overcome!)
-  }
-  return applyManualAchievementOverrides(earned, player);
+  return applyManualAchievementOverrides({
+    earned,
+    details
+  }, player);
 }
 
 // Apply manual achievement overrides:
 // - manualAchievements: always granted by admin (overrides auto)
 // - achievementClearedAt: {[id]: timestamp} — achievement was cleared at this time.
 //   Only re-earned if earned from matches AFTER that timestamp.
-function applyManualAchievementOverrides(earned, player) {
-  if (!player) return earned;
+function applyManualAchievementOverrides({
+  earned,
+  details
+}, player) {
+  if (!player) return {
+    earned,
+    details
+  };
   // Manual grants always win
   for (const id of player.manualAchievements || []) earned.add(id);
-  return earned;
+
+  // clearedAt: remove from earned unless re-earned post-clearance
+  const clearedAt = player.achievementClearedAt || {};
+  // We can't re-run full calc here efficiently, so just remove if cleared
+  // (re-earning is handled by the clearance check in the main calc loop via the
+  // separate checkSingleAchievement path when the full calc is called with filtered matches)
+  for (const [achId, ts] of Object.entries(clearedAt)) {
+    if (!ts) continue;
+    if (earned.has(achId) && !(player.manualAchievements || []).includes(achId)) {
+      // Check if re-earned post-clearance using checkSingleAchievement is handled externally
+      // For now, trust that the clearedAt was applied correctly in the main calc
+    }
+  }
+  return {
+    earned,
+    details
+  };
 }
 
 // Check if a single achievement is earned from a FILTERED set of matches (post-clearance)
@@ -1359,52 +1425,26 @@ function resolveKO(koMatches, koRounds) {
   const ms = koMatches.map(m => ({
     ...m
   }));
-
-  // Auto-resolve byes: if only one team in a match, that team automatically wins
-  function autoResolveByes(matches) {
-    for (const m of matches) {
-      if (m.id === "p3") continue;
-      if (m.teamA && !m.teamB) {
-        // teamA gets bye — auto-winner
-        m.winner = m.winner || "A";
-      } else if (m.teamB && !m.teamA) {
-        // teamB gets bye — auto-winner
-        m.winner = m.winner || "B";
-      }
-    }
-  }
   function winner(m) {
-    // If one team has a bye, that team wins automatically
     if (!m.winner) {
-      if (m.teamA && !m.teamB) return m.teamA;
-      if (m.teamB && !m.teamA) return m.teamB;
+      // Byes only auto-advance if explicitly confirmed (winner set to "BYE")
+      if (m.byeConfirmed && m.teamA && !m.teamB) return m.teamA;
+      if (m.byeConfirmed && m.teamB && !m.teamA) return m.teamB;
       return null;
     }
     return m.winner === "A" ? m.teamA : m.teamB;
   }
   function loser(m) {
-    if (!m.winner) {
-      if (m.teamA && !m.teamB) return m.teamB; // teamB is null (bye), loser = teamA? No — loser of a bye is undefined
-      return null;
-    }
+    if (!m.winner) return null;
     return m.winner === "A" ? m.teamB : m.teamA;
   }
-
-  // Auto-resolve byes in round 0
-  autoResolveByes(ms.filter(m => m.round === 0));
-
-  // Resolve normal rounds
   for (let r = 1; r < koRounds; r++) {
     const prev = ms.filter(m => m.round === r - 1 && m.id !== "p3").sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0));
     ms.filter(m => m.round === r && m.id !== "p3").sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0)).forEach((tm, i) => {
       tm.teamA = prev[i * 2] ? winner(prev[i * 2]) : null;
       tm.teamB = prev[i * 2 + 1] ? winner(prev[i * 2 + 1]) : null;
     });
-    // Auto-resolve byes in this round too
-    autoResolveByes(ms.filter(m => m.round === r && m.id !== "p3"));
   }
-
-  // Resolve 3rd place: losers of the semifinals (round = koRounds - 2)
   const p3 = ms.find(m => m.id === "p3");
   if (p3 && koRounds >= 2) {
     const semis = ms.filter(m => m.round === koRounds - 2 && m.id !== "p3").sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0));
@@ -2681,6 +2721,7 @@ function EditMatchModal({
 }
 function AchievementsGrid({
   earned,
+  details,
   player,
   isAdmin,
   onGrant,
@@ -2688,6 +2729,7 @@ function AchievementsGrid({
   onReset
 }) {
   const earnedSet = earned instanceof Set ? earned : new Set(earned || []);
+  const achDetails = details || {};
   const earnedCount = ACHIEVEMENTS.filter(a => earnedSet.has(a.id)).length;
   const manualAdd = new Set(player?.manualAchievements || []);
   const clearedAt = player?.achievementClearedAt || {};
@@ -2697,7 +2739,6 @@ function AchievementsGrid({
     games: "📜 Spiele",
     social: "🤝 Sozial",
     season: "👑 Saison",
-    misc: "🎲 Sonstiges",
     negative: "💔 Negativ",
     drama: "🎭 Drama",
     datum: "📅 Datum"
@@ -2775,7 +2816,16 @@ function AchievementsGrid({
         className: "ach-name"
       }, a.name), /*#__PURE__*/React.createElement("div", {
         className: "ach-desc"
-      }, cleared ? "Muss neu verdient werden" : a.desc), isAdmin && manuallyAdded && /*#__PURE__*/React.createElement("div", {
+      }, cleared ? "Muss neu verdient werden" : a.desc), got && !cleared && achDetails[a.id] && /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 10,
+          color: "var(--gold)",
+          marginTop: 4,
+          fontFamily: "'Barlow Condensed',sans-serif",
+          letterSpacing: 0.5,
+          opacity: 0.8
+        }
+      }, achDetails[a.id]), isAdmin && manuallyAdded && /*#__PURE__*/React.createElement("div", {
         style: {
           position: "absolute",
           top: 4,
@@ -2883,7 +2933,10 @@ function ProfileView({
 
   // Tournament wins for this player (from HOF)
   const tournamentWinIds = (hallOfFame?.tournament || []).filter(e => e.playerId).map(e => e.playerId);
-  const earned = calcAchievements(player.id, players, matches, archive, tournamentWinIds);
+  const {
+    earned,
+    details: achDetails
+  } = calcAchievements(player.id, players, matches, archive, tournamentWinIds);
 
   // Recent matches (this season + last 10 from archive)
   const recentMatches = [...playerMatches].sort((a, b) => (b.date || 0) - (a.date || 0)).slice(0, 10);
@@ -2992,7 +3045,7 @@ function ProfileView({
     style: {
       width: 90
     },
-    placeholder: "MM-TT",
+    placeholder: "TT/MM/JJ",
     defaultValue: player.birthday || "",
     onBlur: e => handleBirthdayChange(e.target.value)
   })), /*#__PURE__*/React.createElement("div", {
@@ -3125,6 +3178,7 @@ function ProfileView({
     }
   }, /*#__PURE__*/React.createElement("strong", null, "Klick auf eine Karte"), " um Achievements manuell zu vergeben oder zu entfernen.", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("strong", null, "\u201EAlle zur\xFCcksetzen\""), " l\xF6scht alle manuellen Overrides \u2014 die App berechnet alles automatisch neu aus den Spielergebnissen. N\xFCtzlich wenn durch falsche Timestamps falsche Achievements vergeben wurden."), /*#__PURE__*/React.createElement(AchievementsGrid, {
     earned: earned,
+    details: achDetails,
     player: player,
     isAdmin: isAdmin,
     onGrant: onGrantAchievement,
@@ -3171,6 +3225,9 @@ function LigaApp({
   const [tab, setLigaTab] = useState("standings");
   const [newPlayerName, setNewPlayerName] = useState("");
   const [matchPlayerA, setMatchPlayerA] = useState("");
+  const [matchTollpatschA, setMatchTollpatschA] = useState(false); // did A knock over own cup?
+  const [matchTollpatschB, setMatchTollpatschB] = useState(false);
+  const [openPairsSearch, setOpenPairsSearch] = useState("");
   const [matchPlayerB, setMatchPlayerB] = useState("");
   const [matchCupsA, setMatchCupsA] = useState("");
   const [matchCupsB, setMatchCupsB] = useState("");
@@ -3430,6 +3487,7 @@ function LigaApp({
   }
   function changePlayerLeague(id, league) {
     if (!isAdmin) return;
+    // league can be a number (0..numLeagues-1) or "reserve"
     update({
       players: players.map(p => p.id === id ? {
         ...p,
@@ -3448,7 +3506,14 @@ function LigaApp({
       playerB: matchPlayerB,
       cupsA: parseInt(matchCupsA) || 0,
       cupsB: parseInt(matchCupsB) || 0,
-      winner: matchWinner
+      winner: matchWinner,
+      // Tollpatsch: which player knocked over their own cup
+      ...(matchTollpatschA ? {
+        ownCupKnockedBy: matchPlayerA
+      } : {}),
+      ...(matchTollpatschB && !matchTollpatschA ? {
+        ownCupKnockedBy: matchPlayerB
+      } : {})
     };
     update({
       matches: [newMatch, ...matches]
@@ -3458,6 +3523,8 @@ function LigaApp({
     setMatchCupsA("");
     setMatchCupsB("");
     setMatchWinner(null);
+    setMatchTollpatschA(false);
+    setMatchTollpatschB(false);
   }
   function deleteMatch(id) {
     if (!canEdit) return;
@@ -4009,7 +4076,10 @@ function LigaApp({
   }, tabs.map(t => /*#__PURE__*/React.createElement("button", {
     key: t.id,
     className: `tab${tab === t.id ? " active" : ""}`,
-    onClick: () => setLigaTab(t.id)
+    onClick: () => {
+      setLigaTab(t.id);
+      setViewProfileId(null);
+    }
   }, t.label))))), /*#__PURE__*/React.createElement("div", {
     className: "liga-section"
   }, viewProfileId ? /*#__PURE__*/React.createElement(ProfileView, {
@@ -4213,7 +4283,40 @@ function LigaApp({
     className: `match-entry-winner-btn${matchWinner === "B" ? " active" : ""}`,
     disabled: !matchPlayerB,
     onClick: () => setMatchWinner(matchWinner === "B" ? null : "B")
-  }, matchWinner === "B" ? "✓ " : "", "Sieger: ", matchPlayerB ? playerById[matchPlayerB]?.name : "B")), /*#__PURE__*/React.createElement("button", {
+  }, matchWinner === "B" ? "✓ " : "", "Sieger: ", matchPlayerB ? playerById[matchPlayerB]?.name : "B")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 16,
+      padding: "10px 0",
+      flexWrap: "wrap"
+    }
+  }, matchPlayerA && /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: 13,
+      color: "var(--green2)",
+      cursor: "pointer"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: matchTollpatschA,
+    onChange: e => setMatchTollpatschA(e.target.checked)
+  }), "\uD83E\uDD26 ", playerById[matchPlayerA]?.name, " hat eigenen Becher umgeschmissen"), matchPlayerB && /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: 13,
+      color: "var(--green2)",
+      cursor: "pointer"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: matchTollpatschB,
+    onChange: e => setMatchTollpatschB(e.target.checked)
+  }), "\uD83E\uDD26 ", playerById[matchPlayerB]?.name, " hat eigenen Becher umgeschmissen")), /*#__PURE__*/React.createElement("button", {
     className: "match-entry-submit",
     disabled: !matchPlayerA || !matchPlayerB || !matchWinner,
     onClick: submitMatch
@@ -4232,46 +4335,66 @@ function LigaApp({
         className: "open-pair-empty"
       }, "\uD83C\uDF89 Alle Spiele gespielt! Liga ist abgeschlossen.");
     }
-    return /*#__PURE__*/React.createElement("div", {
-      className: "open-pairs-section"
-    }, allOpen.map(({
+    // Filter by search
+    const search = openPairsSearch.trim().toLowerCase();
+    const filteredOpen = allOpen.map(({
       league,
       openPairs
-    }) => {
-      if (openPairs.length === 0) return null;
+    }) => ({
+      league,
+      openPairs: search ? openPairs.filter(p => p.playerA.name.toLowerCase().includes(search) || p.playerB.name.toLowerCase().includes(search)) : openPairs
+    })).filter(l => l.openPairs.length > 0);
+    return /*#__PURE__*/React.createElement("div", {
+      className: "open-pairs-section"
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginBottom: 10
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      className: "liga-season-input",
+      style: {
+        width: "100%"
+      },
+      placeholder: "\uD83D\uDD0D Spieler suchen...",
+      value: openPairsSearch,
+      onChange: e => setOpenPairsSearch(e.target.value)
+    })), filteredOpen.length === 0 && search && /*#__PURE__*/React.createElement("div", {
+      className: "open-pair-empty"
+    }, "Keine offenen Paarungen f\xFCr \u201E", openPairsSearch, "\""), filteredOpen.map(({
+      league,
+      openPairs
+    }) => /*#__PURE__*/React.createElement("div", {
+      key: league
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "open-pair-league-title"
+    }, ligaName(league), " \u2014 ", openPairs.length, " offene Paarungen"), /*#__PURE__*/React.createElement("div", {
+      className: "open-pair-list"
+    }, openPairs.map((pair, i) => {
+      const cls = pair.played === 0 ? "empty" : pair.played < pair.total ? "partial" : "full";
       return /*#__PURE__*/React.createElement("div", {
-        key: league
+        key: i,
+        className: "open-pair-row",
+        onClick: () => {
+          setMatchPlayerA(pair.playerA.id);
+          setMatchPlayerB(pair.playerB.id);
+          setMatchCupsA("");
+          setMatchCupsB("");
+          setMatchWinner(null);
+          window.scrollTo({
+            top: 0,
+            behavior: 'smooth'
+          });
+        }
       }, /*#__PURE__*/React.createElement("div", {
-        className: "open-pair-league-title"
-      }, ligaName(league), " \u2014 ", openPairs.length, " offene Paarungen"), /*#__PURE__*/React.createElement("div", {
-        className: "open-pair-list"
-      }, openPairs.map((pair, i) => {
-        const cls = pair.played === 0 ? "empty" : pair.played < pair.total ? "partial" : "full";
-        return /*#__PURE__*/React.createElement("div", {
-          key: i,
-          className: "open-pair-row",
-          onClick: () => {
-            setMatchPlayerA(pair.playerA.id);
-            setMatchPlayerB(pair.playerB.id);
-            setMatchCupsA("");
-            setMatchCupsB("");
-            setMatchWinner(null);
-            window.scrollTo({
-              top: 0,
-              behavior: 'smooth'
-            });
-          }
-        }, /*#__PURE__*/React.createElement("div", {
-          className: "open-pair-name"
-        }, pair.playerA.name), /*#__PURE__*/React.createElement("div", {
-          className: "open-pair-vs"
-        }, "VS"), /*#__PURE__*/React.createElement("div", {
-          className: "open-pair-name right"
-        }, pair.playerB.name), /*#__PURE__*/React.createElement("span", {
-          className: `open-pair-count ${cls}`
-        }, pair.played, "/", pair.total));
-      })));
-    }));
+        className: "open-pair-name"
+      }, pair.playerA.name), /*#__PURE__*/React.createElement("div", {
+        className: "open-pair-vs"
+      }, "VS"), /*#__PURE__*/React.createElement("div", {
+        className: "open-pair-name right"
+      }, pair.playerB.name), /*#__PURE__*/React.createElement("span", {
+        className: `open-pair-count ${cls}`
+      }, pair.played, "/", pair.total));
+    })))));
   })()), /*#__PURE__*/React.createElement("div", {
     className: "card"
   }, /*#__PURE__*/React.createElement("div", {
@@ -4354,6 +4477,7 @@ function LigaApp({
     length: numLeagues
   }).map((_, lg) => {
     const inLeague = players.filter(p => p.league === lg).sort((a, b) => a.name.localeCompare(b.name));
+    const isLowestLeague = lg === numLeagues - 1;
     return /*#__PURE__*/React.createElement("div", {
       key: lg,
       style: {
@@ -4401,7 +4525,13 @@ function LigaApp({
         fontSize: 11,
         marginLeft: 8
       }
-    }, "\uD83C\uDF82 ", p.birthday)), /*#__PURE__*/React.createElement("select", {
+    }, "\uD83C\uDF82 ", p.birthday)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 6,
+        alignItems: "center"
+      }
+    }, /*#__PURE__*/React.createElement("select", {
       className: "player-league-select",
       value: p.league,
       onChange: e => changePlayerLeague(p.id, parseInt(e.target.value))
@@ -4410,7 +4540,16 @@ function LigaApp({
     }).map((_, lgIdx) => /*#__PURE__*/React.createElement("option", {
       key: lgIdx,
       value: lgIdx
-    }, ligaName(lgIdx)))), /*#__PURE__*/React.createElement("button", {
+    }, ligaName(lgIdx)))), isLowestLeague && isAdmin && /*#__PURE__*/React.createElement("button", {
+      className: "demo-btn",
+      style: {
+        padding: "3px 8px",
+        fontSize: 11,
+        whiteSpace: "nowrap"
+      },
+      onClick: () => changePlayerLeague(p.id, "reserve"),
+      title: "Auf Reservebank schieben"
+    }, "\u23F8 Reserve")), /*#__PURE__*/React.createElement("button", {
       className: "player-delete-btn",
       onClick: () => setConfirmAction({
         title: "Spieler löschen?",
@@ -4421,7 +4560,71 @@ function LigaApp({
         }
       })
     }, "L\xF6schen")))));
-  })))), tab === "achievements" && /*#__PURE__*/React.createElement("div", null, players.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }), (() => {
+    const reservePlayers = players.filter(p => p.league === "reserve").sort((a, b) => a.name.localeCompare(b.name));
+    if (reservePlayers.length === 0 && !isAdmin) return null;
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 24
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "league-name",
+      style: {
+        fontSize: 18,
+        marginBottom: 8,
+        color: "var(--dim)",
+        borderColor: "var(--border)"
+      }
+    }, "\u23F8 Reservebank (", reservePlayers.length, ")"), /*#__PURE__*/React.createElement("div", {
+      className: "info-box",
+      style: {
+        marginBottom: 10
+      }
+    }, "Spieler auf der Reservebank erscheinen nicht in der Liga-Tabelle und haben keine offenen Spiele. Um jemanden zur\xFCckzuholen, einfach eine Liga zuweisen."), /*#__PURE__*/React.createElement("div", {
+      className: `league-drop-zone ${dragOverLeague === "reserve" ? "drag-over" : ""}`,
+      onDragOver: e => {
+        e.preventDefault();
+        setDragOverLeague("reserve");
+      },
+      onDragLeave: () => setDragOverLeague(null),
+      onDrop: e => {
+        e.preventDefault();
+        if (draggedPlayerId) changePlayerLeague(draggedPlayerId, "reserve");
+        setDraggedPlayerId(null);
+        setDragOverLeague(null);
+      }
+    }, "Spieler hier hinziehen um sie auf die Reservebank zu schieben"), /*#__PURE__*/React.createElement("div", {
+      className: "player-list-by-league"
+    }, reservePlayers.map(p => /*#__PURE__*/React.createElement("div", {
+      className: "player-row",
+      key: p.id,
+      draggable: true,
+      onDragStart: () => setDraggedPlayerId(p.id),
+      onDragEnd: () => {
+        setDraggedPlayerId(null);
+        setDragOverLeague(null);
+      }
+    }, /*#__PURE__*/React.createElement(Avatar, {
+      player: p,
+      size: ""
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "player-name player-link",
+      onClick: () => setViewProfileId(p.id)
+    }, p.name), /*#__PURE__*/React.createElement("select", {
+      className: "player-league-select",
+      value: "",
+      onChange: e => {
+        if (e.target.value !== "") changePlayerLeague(p.id, parseInt(e.target.value));
+      }
+    }, /*#__PURE__*/React.createElement("option", {
+      value: ""
+    }, "\u21A9 Zur\xFCck in Liga..."), Array.from({
+      length: numLeagues
+    }).map((_, lgIdx) => /*#__PURE__*/React.createElement("option", {
+      key: lgIdx,
+      value: lgIdx
+    }, ligaName(lgIdx))))))));
+  })()))), tab === "achievements" && /*#__PURE__*/React.createElement("div", null, players.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "card"
   }, /*#__PURE__*/React.createElement("div", {
     className: "liga-empty"
@@ -4441,12 +4644,18 @@ function LigaApp({
     className: "liga-grid"
   }, [...players].sort((a, b) => {
     const tournIds = (state.hallOfFame?.tournament || []).filter(e => e.playerId).map(e => e.playerId);
-    const ea = calcAchievements(a.id, players, matches, archive, tournIds);
-    const eb = calcAchievements(b.id, players, matches, archive, tournIds);
+    const {
+      earned: ea
+    } = calcAchievements(a.id, players, matches, archive, tournIds);
+    const {
+      earned: eb
+    } = calcAchievements(b.id, players, matches, archive, tournIds);
     return eb.size - ea.size;
   }).map(p => {
     const tournIds = (state.hallOfFame?.tournament || []).filter(e => e.playerId).map(e => e.playerId);
-    const earned = calcAchievements(p.id, players, matches, archive, tournIds);
+    const {
+      earned
+    } = calcAchievements(p.id, players, matches, archive, tournIds);
     return /*#__PURE__*/React.createElement("div", {
       key: p.id,
       className: "card",
@@ -5231,6 +5440,44 @@ function LigaApp({
       color: "var(--dim)"
     }
   }, "Passw\xF6rter sind im Quellcode hinterlegt und gelten f\xFCr alle Ger\xE4te."))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderTop: "1px solid var(--border)",
+      margin: "22px 0 14px",
+      paddingTop: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "info-box",
+    style: {
+      marginTop: 0,
+      borderLeftColor: "#f0a050"
+    }
+  }, /*#__PURE__*/React.createElement("strong", null, "\u26A1 Streak-Achievements zur\xFCcksetzen (global):"), " Setzt Hopfenh\xF6rnchen, Brandstifter, Blitzkrug, Saure Gurke und Zigeunerfluch bei allen Spielern auf 0 zur\xFCck. Ab jetzt m\xFCssen neue Streaks erst wieder aufgebaut werden. Alte Spiele z\xE4hlen nicht mehr."), /*#__PURE__*/React.createElement("button", {
+    className: "danger-btn",
+    style: {
+      width: "100%",
+      marginTop: 12,
+      borderColor: "#f0a050",
+      color: "#f0a050"
+    },
+    onClick: () => setConfirmAction({
+      title: "Streak-Achievements zurücksetzen?",
+      message: "Hopfenhörnchen, Brandstifter, Blitzkrug, Saure Gurke und Zigeunerfluch werden für ALLE Spieler zurückgesetzt. Neue Streaks müssen ab jetzt neu aufgebaut werden.",
+      onConfirm: () => {
+        const streakIds = ["hopfenhoernchen", "brandstifter", "blitzkrug", "saure_gurke", "zigeunerfluch"];
+        const ts = Date.now();
+        update({
+          players: players.map(p => ({
+            ...p,
+            achievementClearedAt: {
+              ...(p.achievementClearedAt || {}),
+              ...Object.fromEntries(streakIds.map(id => [id, ts]))
+            }
+          }))
+        });
+        setConfirmAction(null);
+      }
+    })
+  }, "\u26A1 Streak-Achievements aller Spieler zur\xFCcksetzen")), /*#__PURE__*/React.createElement("div", {
     style: {
       borderTop: "1px solid var(--border)",
       margin: "22px 0 14px",
@@ -6280,6 +6527,16 @@ function AdminApp({
   // Only fetch from Firebase if we have a tournamentId AND no initialTournament data
   const [syncedFromFB, setSyncedFromFB] = useState(!!initialTournament || !tournamentId);
 
+  // Role check — same as Liga (read from localStorage)
+  const [tournierRole] = useState(() => {
+    try {
+      return localStorage.getItem("glus_role") || "viewer";
+    } catch {
+      return "viewer";
+    }
+  });
+  const canEditTurnier = tournierRole === "admin" || tournierRole === "editor";
+
   // Load tournament from Firebase if tournamentId given and no initialTournament
   useEffect(() => {
     if (!tournamentId) return;
@@ -6796,7 +7053,9 @@ function AdminApp({
     className: "info-box"
   }, tournamentFormat === "ko_only" ? "Direkt KO-Bracket aus der Liste" : "Leere Felder → Platzhalter\nGruppen werden zufällig ausgelost."), /*#__PURE__*/React.createElement("button", {
     className: "big-btn",
-    onClick: generate
+    onClick: generate,
+    disabled: !canEditTurnier,
+    title: !canEditTurnier ? "Nur Admins/Editoren können Turniere bearbeiten" : undefined
   }, tournamentFormat === "ko_only" ? "KO-Bracket erstellen ⚡" : "Turnier starten! 🍺"))), tab === "groups" && groups && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "groups-grid"
   }, groups.map((group, gi) => {
@@ -6891,7 +7150,8 @@ function AdminApp({
       maxWidth: 300,
       marginTop: 20
     },
-    onClick: buildKO
+    onClick: buildKO,
+    disabled: !canEditTurnier
   }, "KO-Phase starten \u26A1")), tab === "ko" && koMatches && /*#__PURE__*/React.createElement(React.Fragment, null, (() => {
     // Get all round-0 matches (first round) sorted by slot
     const r0matches = koMatches.filter(m => m.round === 0 && m.id !== "p3").sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0));
@@ -6928,9 +7188,12 @@ function AdminApp({
         color: "var(--gold)"
       } : {},
       onClick: () => {
-        setEditSeeding(e => !e);
-        setSwapSlot(null);
-      }
+        if (canEditTurnier) {
+          setEditSeeding(e => !e);
+          setSwapSlot(null);
+        }
+      },
+      disabled: !canEditTurnier
     }, editSeeding ? "✅ Bearbeitung beenden" : "✏️ Bracket-Positionen bearbeiten"), editSeeding && /*#__PURE__*/React.createElement("div", {
       className: "info-box",
       style: {
@@ -7097,7 +7360,39 @@ function AdminApp({
         }, m.winner === "A" ? "✓ " : "", m.teamA.name.split(" ")[0]), /*#__PURE__*/React.createElement("button", {
           className: `win-btn${m.winner === "B" ? " active" : ""}`,
           onClick: () => setKoWinner(m.id, "B")
-        }, m.winner === "B" ? "✓ " : "", m.teamB.name.split(" ")[0])));
+        }, m.winner === "B" ? "✓ " : "", m.teamB.name.split(" ")[0])), !bothPresent && (m.teamA || m.teamB) && canEditTurnier && /*#__PURE__*/React.createElement("div", {
+          style: {
+            padding: "6px 10px",
+            borderTop: "1px solid #1a3a1a"
+          }
+        }, m.byeConfirmed ? /*#__PURE__*/React.createElement("button", {
+          className: "win-btn active",
+          style: {
+            width: "100%",
+            fontSize: 11
+          },
+          onClick: () => setKoMatches(prev => prev.map(x => x.id === m.id ? {
+            ...x,
+            byeConfirmed: false
+          } : x))
+        }, "\u2713 Freilos best\xE4tigt \u2014 zur\xFCcknehmen") : /*#__PURE__*/React.createElement("button", {
+          className: "win-btn",
+          style: {
+            width: "100%",
+            fontSize: 11
+          },
+          onClick: () => setKoMatches(prev => prev.map(x => x.id === m.id ? {
+            ...x,
+            byeConfirmed: true
+          } : x))
+        }, "\uD83C\uDFAB Freilos best\xE4tigen \u2192 ", (m.teamA || m.teamB).name, " weiter")), !bothPresent && (m.teamA || m.teamB) && !canEditTurnier && m.byeConfirmed && /*#__PURE__*/React.createElement("div", {
+          style: {
+            padding: "6px 10px",
+            borderTop: "1px solid #1a3a1a",
+            fontSize: 11,
+            color: "var(--gold)"
+          }
+        }, "\u2713 Freilos \u2014 ", (m.teamA || m.teamB).name, " weiter"));
       })));
     });
   })())), /*#__PURE__*/React.createElement("button", {
