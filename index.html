@@ -572,7 +572,7 @@ function calcAchievements(playerId, players, matches, archive, tournamentWinners
     return applyManualAchievementOverrides({
       earned,
       details
-    }, player);
+    }, player, allMatchesRaw, playerId);
   }
   earned.add("premiere");
   let cupsFor = 0,
@@ -658,8 +658,8 @@ function calcAchievements(playerId, players, matches, archive, tournamentWinners
     }
     if (birthday && m.date) {
       const d = new Date(m.date);
-      // birthday format: DD/MM/YY or TT/MM/JJ
-      const parts = birthday.split("/");
+      // birthday format: TT.MM.JJJJ (dots, 4-digit year)
+      const parts = birthday.split(".");
       if (parts.length >= 2) {
         const dd = parseInt(parts[0]),
           mm = parseInt(parts[1]);
@@ -805,36 +805,39 @@ function calcAchievements(playerId, players, matches, archive, tournamentWinners
   return applyManualAchievementOverrides({
     earned,
     details
-  }, player);
+  }, player, allMatchesRaw, playerId);
 }
 
 // Apply manual achievement overrides:
 // - manualAchievements: always granted by admin (overrides auto)
-// - achievementClearedAt: {[id]: timestamp} — achievement was cleared at this time.
-//   Only re-earned if earned from matches AFTER that timestamp.
+// - achievementClearedAt: {[id]: timestamp} — cleared; only keep if re-earned from post-clearance matches
 function applyManualAchievementOverrides({
   earned,
   details
-}, player) {
+}, player, allMatchesRaw, playerId) {
   if (!player) return {
     earned,
     details
   };
-  // Manual grants always win
-  for (const id of player.manualAchievements || []) earned.add(id);
 
-  // clearedAt: remove from earned unless re-earned post-clearance
+  // For each clearedAt achievement: remove from earned, then check if re-earned post-clearance
   const clearedAt = player.achievementClearedAt || {};
-  // We can't re-run full calc here efficiently, so just remove if cleared
-  // (re-earning is handled by the clearance check in the main calc loop via the
-  // separate checkSingleAchievement path when the full calc is called with filtered matches)
   for (const [achId, ts] of Object.entries(clearedAt)) {
     if (!ts) continue;
-    if (earned.has(achId) && !(player.manualAchievements || []).includes(achId)) {
-      // Check if re-earned post-clearance using checkSingleAchievement is handled externally
-      // For now, trust that the clearedAt was applied correctly in the main calc
+    // Remove from earned (it was cleared)
+    earned.delete(achId);
+    delete details[achId];
+    // Check if re-earned from matches strictly AFTER the clearance
+    if (allMatchesRaw && playerId) {
+      const postMatches = allMatchesRaw.filter(m => (m.date || 0) > ts);
+      if (checkSingleAchievement(achId, playerId, postMatches)) {
+        earned.add(achId);
+      }
     }
   }
+
+  // Manual grants always override everything
+  for (const id of player.manualAchievements || []) earned.add(id);
   return {
     earned,
     details
@@ -2805,18 +2808,18 @@ function AchievementsGrid({
       }
       return /*#__PURE__*/React.createElement("div", {
         key: a.id,
-        className: `ach-card ${got ? "earned" : "locked"}`,
+        className: `ach-card ${got && !cleared ? "earned" : "locked"}`,
         style: isAdmin ? {
           cursor: "pointer"
         } : undefined,
         onClick: isAdmin ? handleClick : undefined
       }, /*#__PURE__*/React.createElement("div", {
         className: "ach-icon"
-      }, cleared ? "⏳" : a.icon), /*#__PURE__*/React.createElement("div", {
+      }, a.icon), /*#__PURE__*/React.createElement("div", {
         className: "ach-name"
       }, a.name), /*#__PURE__*/React.createElement("div", {
         className: "ach-desc"
-      }, cleared ? "Muss neu verdient werden" : a.desc), got && !cleared && achDetails[a.id] && /*#__PURE__*/React.createElement("div", {
+      }, a.desc), got && !cleared && achDetails[a.id] && /*#__PURE__*/React.createElement("div", {
         style: {
           fontSize: 10,
           color: "var(--gold)",
@@ -2851,7 +2854,7 @@ function AchievementsGrid({
           fontFamily: "'Barlow Condensed',sans-serif",
           fontWeight: 700
         }
-      }, "\u21A9 NEU VERDIENEN"));
+      }, "\u21A9 RESET"));
     })));
   }));
 }
@@ -3045,7 +3048,7 @@ function ProfileView({
     style: {
       width: 90
     },
-    placeholder: "TT/MM/JJ",
+    placeholder: "TT.MM.JJJJ",
     defaultValue: player.birthday || "",
     onBlur: e => handleBirthdayChange(e.target.value)
   })), /*#__PURE__*/React.createElement("div", {
@@ -6676,6 +6679,7 @@ function AdminApp({
   // ── Group logic ──────────────────────────────────────────────────────────
 
   function updateMatch(gIdx, mIdx, field, val) {
+    if (!canEditTurnier) return;
     setGroups(prev => prev.map((g, gi) => gi !== gIdx ? g : {
       ...g,
       matches: g.matches.map((m, mi) => mi !== mIdx ? m : {
@@ -6685,6 +6689,7 @@ function AdminApp({
     }));
   }
   function setWinner(gIdx, mIdx, side) {
+    if (!canEditTurnier) return;
     setGroups(prev => prev.map((g, gi) => gi !== gIdx ? g : {
       ...g,
       matches: g.matches.map((m, mi) => mi !== mIdx ? m : {
@@ -6735,12 +6740,14 @@ function AdminApp({
     return m.winner === "A" ? m.teamA : m.teamB;
   }
   function updateKoMatch(id, field, val) {
+    if (!canEditTurnier) return;
     setKoMatches(prev => prev.map(m => m.id === id ? {
       ...m,
       [field]: val
     } : m));
   }
   function setKoWinner(id, side) {
+    if (!canEditTurnier) return;
     setKoMatches(prev => prev.map(m => m.id === id ? {
       ...m,
       winner: m.winner === side ? null : side
@@ -6833,7 +6840,10 @@ function AdminApp({
       ...baseTabs,
       ...formatTabs
     };
-    const order = tournamentFormat === "ko_only" ? ["setup", "names", "ko", "prize", "rules"] : tournamentFormat === "groups_only" ? ["setup", "names", "groups", "prize", "rules"] : ["setup", "names", "groups", "ko", "prize", "rules"];
+    // Viewers only see brackets + rules, not setup/names/prize
+    const fullOrder = tournamentFormat === "ko_only" ? ["setup", "names", "ko", "prize", "rules"] : tournamentFormat === "groups_only" ? ["setup", "names", "groups", "prize", "rules"] : ["setup", "names", "groups", "ko", "prize", "rules"];
+    const viewerOnly = ["groups", "ko", "rules"].filter(t => fullOrder.includes(t));
+    const order = canEditTurnier ? fullOrder : viewerOnly;
     return order.map(t => /*#__PURE__*/React.createElement("button", {
       key: t,
       className: `tab${tab === t ? " active" : ""}`,
@@ -7331,7 +7341,7 @@ function AdminApp({
             className: `ko-team${isW ? " winner-team" : ""}${!team ? " tbd" : ""}`
           }, /*#__PURE__*/React.createElement("span", {
             className: `ko-team-name${isW ? " w" : ""}`
-          }, team ? team.name : "TBD"), team && bothPresent && /*#__PURE__*/React.createElement("div", {
+          }, team ? team.name : "TBD"), team && bothPresent && canEditTurnier && /*#__PURE__*/React.createElement("div", {
             className: "ko-cup-ctrl"
           }, /*#__PURE__*/React.createElement("button", {
             className: "mini-btn",
@@ -7346,7 +7356,7 @@ function AdminApp({
             className: "mini-btn",
             onClick: () => updateKoMatch(m.id, side === "A" ? "cupsA" : "cupsB", (parseInt(cups) || 0) + 1)
           }, "+")));
-        }), bothPresent && /*#__PURE__*/React.createElement("div", {
+        }), bothPresent && canEditTurnier && /*#__PURE__*/React.createElement("div", {
           className: "winner-btns",
           style: {
             padding: "6px 10px",
