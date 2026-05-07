@@ -4950,17 +4950,27 @@ function LigaApp({
       const generalScoreA = calcSkillScore(lifetimeA);
       const generalScoreB = calcSkillScore(lifetimeB);
 
-      // H2H-weighted score: 30% general, 70% head-to-head record
-      // Bayesian prior: 3 phantom games at 50/50 so 1 real game doesn't dominate
+      // League factor: Liga 1 = 1.0, Liga N = 0.0 (normalized)
+      // Reserve players get 0
+      const leagueScore = league => {
+        if (typeof league !== "number") return 0;
+        return numLeagues <= 1 ? 0.5 : (numLeagues - 1 - league) / (numLeagues - 1);
+      };
+      const leagueScoreA = leagueScore(pa.league);
+      const leagueScoreB = leagueScore(pb.league);
+
+      // H2H-weighted score:
+      // weights: general ~25%, league ~15%, H2H ~60% (scales with games played)
       const h2hGames = h2h.matches.length;
       const h2hPrior = 3;
       const h2hWinRateA = (h2h.winsA + h2hPrior * 0.5) / (h2hGames + h2hPrior);
       const h2hWinRateB = (h2h.winsB + h2hPrior * 0.5) / (h2hGames + h2hPrior);
-      // Weight H2H more the more games they've played against each other
-      const h2hWeight = Math.min(0.7, h2hGames / (h2hGames + 5) * 0.7);
-      const generalWeight = 1 - h2hWeight;
-      const h2hScoreA = generalWeight * generalScoreA + h2hWeight * h2hWinRateA;
-      const h2hScoreB = generalWeight * generalScoreB + h2hWeight * h2hWinRateB;
+      // H2H weight grows with number of games, max 60%
+      const h2hWeight = Math.min(0.60, h2hGames / (h2hGames + 5) * 0.60);
+      const leagueWeight = 0.15;
+      const generalWeight = Math.max(0.10, 1 - h2hWeight - leagueWeight);
+      const h2hScoreA = generalWeight * generalScoreA + leagueWeight * leagueScoreA + h2hWeight * h2hWinRateA;
+      const h2hScoreB = generalWeight * generalScoreB + leagueWeight * leagueScoreB + h2hWeight * h2hWinRateB;
       const oddsA = calcOdds(h2hScoreA);
       const oddsB = calcOdds(h2hScoreB);
       return /*#__PURE__*/React.createElement("div", {
@@ -5003,7 +5013,7 @@ function LigaApp({
           color: "var(--dim)",
           marginTop: 2
         }
-      }, Math.round(generalWeight * 100), "% allg. \xB7 ", Math.round(h2hWeight * 100), "% H2H")), /*#__PURE__*/React.createElement("div", {
+      }, Math.round(generalWeight * 100), "% allg. \xB7 ", Math.round(leagueWeight * 100), "% Liga \xB7 ", Math.round(h2hWeight * 100), "% H2H")), /*#__PURE__*/React.createElement("div", {
         style: {
           textAlign: "center"
         }
@@ -5032,7 +5042,7 @@ function LigaApp({
           color: "var(--dim)",
           marginTop: 2
         }
-      }, Math.round(generalWeight * 100), "% allg. \xB7 ", Math.round(h2hWeight * 100), "% H2H")));
+      }, Math.round(generalWeight * 100), "% allg. \xB7 ", Math.round(leagueWeight * 100), "% Liga \xB7 ", Math.round(h2hWeight * 100), "% H2H")));
     })(), h2h.matches.length === 0 ? /*#__PURE__*/React.createElement("div", {
       className: "h2h-empty"
     }, "\u2694\uFE0F ", pa.name, " und ", pb.name, " haben noch nicht gegeneinander gespielt.") : /*#__PURE__*/React.createElement("div", {
