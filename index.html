@@ -421,6 +421,12 @@ const ACHIEVEMENTS = [
   name: "Angstgegner",
   desc: "Ein Spieler hat 3 Niederlagen in Folge gegen dich",
   category: "social"
+}, {
+  id: "rivale",
+  icon: "⚔️",
+  name: "Rivale",
+  desc: "Gleich viele Siege wie ein Gegner im direkten Vergleich (mind. 1 Spiel)",
+  category: "social"
 },
 // Saison-Awards
 {
@@ -570,8 +576,6 @@ function calcAchievements(playerId, players, matches, archive, tournamentWinners
   let blitzkrugDay = null;
   const winsByDay = {};
   const opponentLossStreakVsMe = {};
-  let angstgegnerForSomeone = false,
-    angstgegnerOpps = null;
   let tollpatsch = false;
   for (const m of playerMatches) {
     const isA = m.playerA === playerId;
@@ -609,11 +613,6 @@ function calcAchievements(playerId, players, matches, archive, tournamentWinners
         theUglyOpp = opponentId;
       }
       opponentLossStreakVsMe[opponentId] = (opponentLossStreakVsMe[opponentId] || 0) + 1;
-      if (opponentLossStreakVsMe[opponentId] >= 3) {
-        angstgegnerForSomeone = true;
-        if (!angstgegnerOpps) angstgegnerOpps = [];
-        if (!angstgegnerOpps.includes(opponentId)) angstgegnerOpps.push(opponentId);
-      }
       if (m.date) {
         const day = new Date(m.date).toISOString().slice(0, 10);
         winsByDay[day] = (winsByDay[day] || 0) + 1;
@@ -630,6 +629,30 @@ function calcAchievements(playerId, players, matches, archive, tournamentWinners
       }
       opponentLossStreakVsMe[opponentId] = 0;
     }
+  }
+
+  // Rivale: anyone you're tied with in H2H wins (both > 0)
+  const rivalOpps = [];
+  for (const m of playerMatches) {
+    const isA = m.playerA === playerId;
+    const opponentId = isA ? m.playerB : m.playerA;
+    // count H2H wins for both sides
+    if (!rivalOpps._tracked) rivalOpps._tracked = {};
+  }
+  // Build H2H wins map
+  const h2hWinsForMe = {},
+    h2hWinsForOpp = {};
+  for (const m of playerMatches) {
+    const isA = m.playerA === playerId;
+    const opponentId = isA ? m.playerB : m.playerA;
+    const won = isA && m.winner === "A" || !isA && m.winner === "B";
+    h2hWinsForMe[opponentId] = (h2hWinsForMe[opponentId] || 0) + (won ? 1 : 0);
+    h2hWinsForOpp[opponentId] = (h2hWinsForOpp[opponentId] || 0) + (won ? 0 : 1);
+  }
+  const currentRivals = Object.keys(h2hWinsForMe).filter(oppId => h2hWinsForMe[oppId] > 0 && h2hWinsForMe[oppId] === h2hWinsForOpp[oppId]);
+  if (currentRivals.length > 0) {
+    earned.add("rivale");
+    details.rivale = currentRivals.map(id => `${getName(id)} (${h2hWinsForMe[id]}:${h2hWinsForOpp[id]})`);
   }
   if (wins > 0) earned.add("first_win");
   if (knockout) {
@@ -680,9 +703,12 @@ function calcAchievements(playerId, players, matches, archive, tournamentWinners
   if (totalGames >= 100) earned.add("games_100");
   if (maxLossStreak >= 5) earned.add("saure_gurke");
   if (maxLossStreak >= 10) earned.add("zigeunerfluch");
-  if (angstgegnerForSomeone) {
+
+  // Angstgegner: DYNAMIC — only active if someone currently has 3+ consecutive losses against me
+  const currentAngstOpps = Object.entries(opponentLossStreakVsMe).filter(([, streak]) => streak >= 3).map(([id]) => id);
+  if (currentAngstOpps.length > 0) {
     earned.add("angstgegner");
-    details.angstgegner = (angstgegnerOpps || []).map(id => `${getName(id)} verliert immer gegen dich`);
+    details.angstgegner = currentAngstOpps.map(id => `${getName(id)} verliert gerade immer gegen dich`);
   }
 
   // Archive-based achievements
@@ -908,6 +934,19 @@ function checkSingleAchievement(achId, playerId, filteredMatches) {
       return maxLossStreak >= 10;
     case "angstgegner":
       return angstgegner;
+    case "rivale":
+      {
+        const h2hMe = {},
+          h2hOpp = {};
+        for (const m of sorted) {
+          const isA = m.playerA === playerId;
+          const oppId = isA ? m.playerB : m.playerA;
+          const won = isA && m.winner === "A" || !isA && m.winner === "B";
+          h2hMe[oppId] = (h2hMe[oppId] || 0) + (won ? 1 : 0);
+          h2hOpp[oppId] = (h2hOpp[oppId] || 0) + (won ? 0 : 1);
+        }
+        return Object.keys(h2hMe).some(id => h2hMe[id] > 0 && h2hMe[id] === h2hOpp[id]);
+      }
     case "premiere":
       return totalGames > 0;
     default:
