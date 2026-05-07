@@ -4947,8 +4947,22 @@ function LigaApp({
     }, "W\xE4hle 2 Spieler aus um den Direktvergleich zu sehen.") : /*#__PURE__*/React.createElement(React.Fragment, null, (() => {
       const lifetimeA = calcLifetimeStatsLastN(pa.id, matches, archive, 50);
       const lifetimeB = calcLifetimeStatsLastN(pb.id, matches, archive, 50);
-      const oddsA = calcOdds(calcSkillScore(lifetimeA));
-      const oddsB = calcOdds(calcSkillScore(lifetimeB));
+      const generalScoreA = calcSkillScore(lifetimeA);
+      const generalScoreB = calcSkillScore(lifetimeB);
+
+      // H2H-weighted score: 30% general, 70% head-to-head record
+      // Bayesian prior: 3 phantom games at 50/50 so 1 real game doesn't dominate
+      const h2hGames = h2h.matches.length;
+      const h2hPrior = 3;
+      const h2hWinRateA = (h2h.winsA + h2hPrior * 0.5) / (h2hGames + h2hPrior);
+      const h2hWinRateB = (h2h.winsB + h2hPrior * 0.5) / (h2hGames + h2hPrior);
+      // Weight H2H more the more games they've played against each other
+      const h2hWeight = Math.min(0.7, h2hGames / (h2hGames + 5) * 0.7);
+      const generalWeight = 1 - h2hWeight;
+      const h2hScoreA = generalWeight * generalScoreA + h2hWeight * h2hWinRateA;
+      const h2hScoreB = generalWeight * generalScoreB + h2hWeight * h2hWinRateB;
+      const oddsA = calcOdds(h2hScoreA);
+      const oddsB = calcOdds(h2hScoreB);
       return /*#__PURE__*/React.createElement("div", {
         style: {
           display: "grid",
@@ -4972,7 +4986,7 @@ function LigaApp({
           letterSpacing: 1.5,
           textTransform: "uppercase"
         }
-      }, "\uD83D\uDCB0 Wettquote"), /*#__PURE__*/React.createElement("div", {
+      }, "\uD83D\uDCB0 Duelle-Quote"), /*#__PURE__*/React.createElement("div", {
         style: {
           fontFamily: "'Permanent Marker',cursive",
           fontSize: 32,
@@ -4983,7 +4997,13 @@ function LigaApp({
           fontSize: 12,
           color: "var(--green2)"
         }
-      }, pa.name)), /*#__PURE__*/React.createElement("div", {
+      }, pa.name), /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 10,
+          color: "var(--dim)",
+          marginTop: 2
+        }
+      }, Math.round(generalWeight * 100), "% allg. \xB7 ", Math.round(h2hWeight * 100), "% H2H")), /*#__PURE__*/React.createElement("div", {
         style: {
           textAlign: "center"
         }
@@ -4995,7 +5015,7 @@ function LigaApp({
           letterSpacing: 1.5,
           textTransform: "uppercase"
         }
-      }, "\uD83D\uDCB0 Wettquote"), /*#__PURE__*/React.createElement("div", {
+      }, "\uD83D\uDCB0 Duelle-Quote"), /*#__PURE__*/React.createElement("div", {
         style: {
           fontFamily: "'Permanent Marker',cursive",
           fontSize: 32,
@@ -5006,7 +5026,13 @@ function LigaApp({
           fontSize: 12,
           color: "var(--green2)"
         }
-      }, pb.name)));
+      }, pb.name), /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 10,
+          color: "var(--dim)",
+          marginTop: 2
+        }
+      }, Math.round(generalWeight * 100), "% allg. \xB7 ", Math.round(h2hWeight * 100), "% H2H")));
     })(), h2h.matches.length === 0 ? /*#__PURE__*/React.createElement("div", {
       className: "h2h-empty"
     }, "\u2694\uFE0F ", pa.name, " und ", pb.name, " haben noch nicht gegeneinander gespielt.") : /*#__PURE__*/React.createElement("div", {
