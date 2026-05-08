@@ -543,8 +543,8 @@ function calcAchievements(playerId, players, matches, archive, tournamentWinners
   const playerById = Object.fromEntries((players || []).map(p => [p.id, p]));
   const getName = id => playerById[id]?.name || id;
 
-  // Combine current + archived matches (lifetime)
-  const allMatchesRaw = [...(matches || []), ...(archive || []).flatMap(a => a.matches || [])];
+  // Combine current + archived matches (lifetime) — exclude fun games for achievements
+  const allMatchesRaw = [...(matches || []).filter(m => !m.isFunGame), ...(archive || []).flatMap(a => a.matches || []).filter(m => !m.isFunGame)];
   const playerMatches = allMatchesRaw.filter(m => m.winner && (m.playerA === playerId || m.playerB === playerId)).sort((a, b) => (a.date || 0) - (b.date || 0));
   if (playerMatches.length === 0) {
     const anyMatch = allMatchesRaw.find(m => m.playerA === playerId || m.playerB === playerId);
@@ -985,6 +985,7 @@ function getCurrentStreak(playerId, matches) {
   };
 }
 function calcOpenPairings(players, matches, leagueConfig) {
+  const ligaMatches = matches.filter(m => !m.isFunGame); // exclude fun games
   const result = [];
   for (let lg = 0; lg < leagueConfig.length; lg++) {
     const cfg = leagueConfig[lg];
@@ -1121,6 +1122,7 @@ function calcLeagueStandings(players, matches, leagueIdx) {
   const byId = Object.fromEntries(stats.map(s => [s.id, s]));
   for (const m of matches) {
     if (!m.winner) continue;
+    if (m.isFunGame) continue; // fun games don't count for standings
     const a = byId[m.playerA],
       b = byId[m.playerB];
     if (!a || !b) continue;
@@ -1153,26 +1155,59 @@ function calcAllPlayerStats(players, matches) {
     wins: 0,
     losses: 0,
     cupsFor: 0,
-    cupsAgainst: 0
+    cupsAgainst: 0,
+    funGames: 0,
+    funWins: 0 // separate fun game counters
   }));
   const byId = Object.fromEntries(stats.map(s => [s.id, s]));
   for (const m of matches) {
     if (!m.winner) continue;
-    const a = byId[m.playerA],
-      b = byId[m.playerB];
-    if (!a || !b) continue;
-    a.games++;
-    b.games++;
-    a.cupsFor += m.cupsA;
-    a.cupsAgainst += m.cupsB;
-    b.cupsFor += m.cupsB;
-    b.cupsAgainst += m.cupsA;
-    if (m.winner === "A") {
-      a.wins++;
-      b.losses++;
+    if (m.isFunGame) {
+      // Fun game: expand multi-player teams
+      const sideA = m.playersA || (m.playerA ? [m.playerA] : []);
+      const sideB = m.playersB || (m.playerB ? [m.playerB] : []);
+      for (const id of sideA) {
+        const s = byId[id];
+        if (!s) continue;
+        s.games++;
+        s.funGames++;
+        s.cupsFor += m.cupsA;
+        s.cupsAgainst += m.cupsB;
+        if (m.winner === "A") {
+          s.wins++;
+          s.funWins++;
+        } else s.losses++;
+      }
+      for (const id of sideB) {
+        const s = byId[id];
+        if (!s) continue;
+        s.games++;
+        s.funGames++;
+        s.cupsFor += m.cupsB;
+        s.cupsAgainst += m.cupsA;
+        if (m.winner === "B") {
+          s.wins++;
+          s.funWins++;
+        } else s.losses++;
+      }
     } else {
-      b.wins++;
-      a.losses++;
+      // Regular 1v1 liga match
+      const a = byId[m.playerA],
+        b = byId[m.playerB];
+      if (!a || !b) continue;
+      a.games++;
+      b.games++;
+      a.cupsFor += m.cupsA;
+      a.cupsAgainst += m.cupsB;
+      b.cupsFor += m.cupsB;
+      b.cupsAgainst += m.cupsA;
+      if (m.winner === "A") {
+        a.wins++;
+        b.losses++;
+      } else {
+        b.wins++;
+        a.losses++;
+      }
     }
   }
   return stats.map(s => ({
@@ -3220,8 +3255,12 @@ function LigaApp({
   const [tab, setLigaTab] = useState("standings");
   const [newPlayerName, setNewPlayerName] = useState("");
   const [matchPlayerA, setMatchPlayerA] = useState("");
-  const [matchTollpatschA, setMatchTollpatschA] = useState(false); // did A knock over own cup?
+  const [matchTollpatschA, setMatchTollpatschA] = useState(false);
   const [matchTollpatschB, setMatchTollpatschB] = useState(false);
+  const [matchIsFunGame, setMatchIsFunGame] = useState(false);
+  const [matchTeamSize, setMatchTeamSize] = useState(1);
+  const [matchPlayersA, setMatchPlayersA] = useState(["", "", "", "", ""]);
+  const [matchPlayersB, setMatchPlayersB] = useState(["", "", "", "", ""]);
   const [openPairsSearch, setOpenPairsSearch] = useState("");
   const [matchPlayerB, setMatchPlayerB] = useState("");
   const [matchCupsA, setMatchCupsA] = useState("");
@@ -3492,6 +3531,40 @@ function LigaApp({
   }
   function submitMatch() {
     if (!canEdit) return;
+    if (matchIsFunGame) {
+      // Fun game: validate all team slots filled, no duplicates
+      const sideA = matchPlayersA.slice(0, matchTeamSize);
+      const sideB = matchPlayersB.slice(0, matchTeamSize);
+      if (sideA.some(p => !p) || sideB.some(p => !p)) return;
+      if (!matchWinner) return;
+      const allIds = [...sideA, ...sideB];
+      if (new Set(allIds).size !== allIds.length) return; // duplicate player
+      const id = "m_" + Date.now();
+      const newMatch = {
+        id,
+        date: Date.now(),
+        isFunGame: true,
+        teamSize: matchTeamSize,
+        playersA: sideA,
+        playersB: sideB,
+        playerA: sideA[0],
+        playerB: sideB[0],
+        // compat
+        cupsA: parseInt(matchCupsA) || 0,
+        cupsB: parseInt(matchCupsB) || 0,
+        winner: matchWinner
+      };
+      update({
+        matches: [newMatch, ...matches]
+      });
+      setMatchPlayersA(["", "", "", "", ""]);
+      setMatchPlayersB(["", "", "", "", ""]);
+      setMatchCupsA("");
+      setMatchCupsB("");
+      setMatchWinner(null);
+      return;
+    }
+    // Regular 1v1 liga match
     if (!matchPlayerA || !matchPlayerB || matchPlayerA === matchPlayerB || !matchWinner) return;
     const id = "m_" + Date.now();
     const newMatch = {
@@ -3502,7 +3575,6 @@ function LigaApp({
       cupsA: parseInt(matchCupsA) || 0,
       cupsB: parseInt(matchCupsB) || 0,
       winner: matchWinner,
-      // Tollpatsch: which player knocked over their own cup
       ...(matchTollpatschA ? {
         ownCupKnockedBy: matchPlayerA
       } : {}),
@@ -4166,10 +4238,169 @@ function LigaApp({
   }))), tab === "match" && canEdit && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "match-entry-card"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "card-title"
-  }, "\u2694\uFE0F Neues Spiel"), players.length < 2 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: 14,
+      flexWrap: "wrap",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-title",
+    style: {
+      marginBottom: 0
+    }
+  }, "\u2694\uFE0F Neues Spiel"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: `demo-btn${matchIsFunGame ? " active" : ""}`,
+    style: matchIsFunGame ? {
+      border: "1px solid #8bc34a",
+      color: "#8bc34a",
+      background: "rgba(139,195,74,0.1)"
+    } : {},
+    onClick: () => {
+      setMatchIsFunGame(f => !f);
+      setMatchPlayerA("");
+      setMatchPlayerB("");
+      setMatchPlayersA(["", "", "", "", ""]);
+      setMatchPlayersB(["", "", "", "", ""]);
+      setMatchCupsA("");
+      setMatchCupsB("");
+      setMatchWinner(null);
+      setMatchTeamSize(1);
+    }
+  }, "\uD83C\uDFAE ", matchIsFunGame ? "Spaß-Spiel ✓" : "Spaß-Spiel"), matchIsFunGame && /*#__PURE__*/React.createElement("select", {
+    className: "player-league-select",
+    value: matchTeamSize,
+    onChange: e => {
+      setMatchTeamSize(parseInt(e.target.value));
+      setMatchPlayersA(["", "", "", "", ""]);
+      setMatchPlayersB(["", "", "", "", ""]);
+      setMatchWinner(null);
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: 1
+  }, "1v1"), /*#__PURE__*/React.createElement("option", {
+    value: 2
+  }, "2v2"), /*#__PURE__*/React.createElement("option", {
+    value: 3
+  }, "3v3"), /*#__PURE__*/React.createElement("option", {
+    value: 4
+  }, "4v4"), /*#__PURE__*/React.createElement("option", {
+    value: 5
+  }, "5v5")))), matchIsFunGame && /*#__PURE__*/React.createElement("div", {
+    className: "info-box",
+    style: {
+      marginBottom: 12
+    }
+  }, "\uD83C\uDFAE Spa\xDF-Spiel \u2014 z\xE4hlt f\xFCr den allgemeinen Vergleich, aber ", /*#__PURE__*/React.createElement("strong", null, "nicht"), " f\xFCr die Liga-Tabelle, Achievements oder den Direktvergleich."), players.length < 2 ? /*#__PURE__*/React.createElement("div", {
     className: "info-box"
-  }, "Du brauchst mindestens 2 Spieler. Ein Admin muss die noch hinzuf\xFCgen.") : /*#__PURE__*/React.createElement(React.Fragment, null, (() => {
+  }, "Du brauchst mindestens 2 Spieler.") : matchIsFunGame ?
+  /*#__PURE__*/
+  // FUN GAME ENTRY
+  React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "match-entry-row"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "match-entry-side"
+  }, Array.from({
+    length: matchTeamSize
+  }).map((_, i) => /*#__PURE__*/React.createElement("select", {
+    key: i,
+    className: "match-entry-select",
+    style: {
+      marginBottom: 6
+    },
+    value: matchPlayersA[i] || "",
+    onChange: e => {
+      const n = [...matchPlayersA];
+      n[i] = e.target.value;
+      setMatchPlayersA(n);
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u2014 Spieler ", i + 1, " (Team A) \u2014"), players.map(p => {
+    const usedA = matchPlayersA.filter((_, idx) => idx !== i).includes(p.id);
+    const usedB = matchPlayersB.slice(0, matchTeamSize).includes(p.id);
+    return /*#__PURE__*/React.createElement("option", {
+      key: p.id,
+      value: p.id,
+      disabled: usedA || usedB
+    }, p.name);
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "match-entry-cups"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "match-entry-cup-input",
+    type: "number",
+    min: "0",
+    placeholder: "0",
+    value: matchCupsA,
+    onChange: e => setMatchCupsA(e.target.value)
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "var(--green2)",
+      fontSize: 13
+    }
+  }, "Becher"))), /*#__PURE__*/React.createElement("div", {
+    className: "match-entry-vs"
+  }, "VS"), /*#__PURE__*/React.createElement("div", {
+    className: "match-entry-side"
+  }, Array.from({
+    length: matchTeamSize
+  }).map((_, i) => /*#__PURE__*/React.createElement("select", {
+    key: i,
+    className: "match-entry-select",
+    style: {
+      marginBottom: 6
+    },
+    value: matchPlayersB[i] || "",
+    onChange: e => {
+      const n = [...matchPlayersB];
+      n[i] = e.target.value;
+      setMatchPlayersB(n);
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u2014 Spieler ", i + 1, " (Team B) \u2014"), players.map(p => {
+    const usedA = matchPlayersA.slice(0, matchTeamSize).includes(p.id);
+    const usedB = matchPlayersB.filter((_, idx) => idx !== i).includes(p.id);
+    return /*#__PURE__*/React.createElement("option", {
+      key: p.id,
+      value: p.id,
+      disabled: usedA || usedB
+    }, p.name);
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "match-entry-cups"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "match-entry-cup-input",
+    type: "number",
+    min: "0",
+    placeholder: "0",
+    value: matchCupsB,
+    onChange: e => setMatchCupsB(e.target.value)
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "var(--green2)",
+      fontSize: 13
+    }
+  }, "Becher")))), /*#__PURE__*/React.createElement("div", {
+    className: "match-entry-winner"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: `match-entry-winner-btn${matchWinner === "A" ? " active" : ""}`,
+    onClick: () => setMatchWinner(matchWinner === "A" ? null : "A")
+  }, matchWinner === "A" ? "✓ " : "", "Team A gewinnt"), /*#__PURE__*/React.createElement("button", {
+    className: `match-entry-winner-btn${matchWinner === "B" ? " active" : ""}`,
+    onClick: () => setMatchWinner(matchWinner === "B" ? null : "B")
+  }, matchWinner === "B" ? "✓ " : "", "Team B gewinnt")), /*#__PURE__*/React.createElement("button", {
+    className: "match-entry-submit",
+    disabled: matchPlayersA.slice(0, matchTeamSize).some(p => !p) || matchPlayersB.slice(0, matchTeamSize).some(p => !p) || !matchWinner,
+    onClick: submitMatch
+  }, "\uD83C\uDFAE Spa\xDF-Spiel speichern")) : /*#__PURE__*/React.createElement(React.Fragment, null, (() => {
     // Helper: how many games have been played between A and B
     const gamesBetween = (a, b) => {
       if (!a || !b || a === b) return 0;
@@ -4389,6 +4620,33 @@ function LigaApp({
   }, matches.length === 0 && /*#__PURE__*/React.createElement("div", {
     className: "liga-empty"
   }, "Noch keine Spiele"), matches.map(m => {
+    if (m.isFunGame) {
+      // Fun game: show team names
+      const sideA = (m.playersA || [m.playerA]).map(id => playerById[id]?.name || id).filter(Boolean);
+      const sideB = (m.playersB || [m.playerB]).map(id => playerById[id]?.name || id).filter(Boolean);
+      return /*#__PURE__*/React.createElement("div", {
+        className: "match-hist-row",
+        key: m.id,
+        style: {
+          gridTemplateColumns: "1fr auto 1fr auto auto"
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        className: `match-hist-team${m.winner === "A" ? " winner" : ""}`
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 10,
+          color: "#8bc34a",
+          marginRight: 4
+        }
+      }, "\uD83C\uDFAE"), sideA.join(" + ")), /*#__PURE__*/React.createElement("div", {
+        className: "match-hist-score"
+      }, m.cupsA, " : ", m.cupsB), /*#__PURE__*/React.createElement("div", {
+        className: `match-hist-team right${m.winner === "B" ? " winner" : ""}`
+      }, sideB.join(" + ")), canEdit && /*#__PURE__*/React.createElement("button", {
+        className: "match-hist-del",
+        onClick: () => deleteMatch(m.id)
+      }, "\u2715"), !canEdit && /*#__PURE__*/React.createElement("span", null));
+    }
     const pa = playerById[m.playerA],
       pb = playerById[m.playerB];
     if (!pa || !pb) return null;
@@ -4404,14 +4662,14 @@ function LigaApp({
       className: "match-hist-score"
     }, m.cupsA, " : ", m.cupsB), /*#__PURE__*/React.createElement("div", {
       className: `match-hist-team right${m.winner === "B" ? " winner" : ""}`
-    }, pb.name), /*#__PURE__*/React.createElement("button", {
+    }, pb.name), canEdit && /*#__PURE__*/React.createElement("button", {
       className: "match-hist-del",
       style: {
         borderColor: "#5a5020",
         color: "var(--gold)"
       },
       onClick: () => setEditMatchId(m.id)
-    }, "\u270F"), /*#__PURE__*/React.createElement("button", {
+    }, "\u270F"), canEdit && /*#__PURE__*/React.createElement("button", {
       className: "match-hist-del",
       onClick: () => deleteMatch(m.id)
     }, "\u2715"));
