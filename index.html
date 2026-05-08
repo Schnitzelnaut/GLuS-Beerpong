@@ -957,17 +957,17 @@ function checkSingleAchievement(achId, playerId, filteredMatches) {
 
 // Form string — last 5 games as outcomes ("WLWLW" or array of W/L)
 function getRecentForm(playerId, matches, count = 5) {
-  const playerMatches = matches.filter(m => m.winner && (m.playerA === playerId || m.playerB === playerId)).sort((a, b) => (b.date || 0) - (a.date || 0)).slice(0, count);
+  const playerMatches = matches.filter(m => m.winner && !m.isFunGame && (m.playerA === playerId || m.playerB === playerId)).sort((a, b) => (b.date || 0) - (a.date || 0)).slice(0, count);
   return playerMatches.map(m => {
     const isA = m.playerA === playerId;
     const won = isA && m.winner === "A" || !isA && m.winner === "B";
     return won ? "W" : "L";
-  }).reverse(); // oldest to newest
+  }).reverse();
 }
 
 // Current win streak (how many wins in a row right now, going backwards)
 function getCurrentStreak(playerId, matches) {
-  const playerMatches = matches.filter(m => m.winner && (m.playerA === playerId || m.playerB === playerId)).sort((a, b) => (b.date || 0) - (a.date || 0));
+  const playerMatches = matches.filter(m => m.winner && !m.isFunGame && (m.playerA === playerId || m.playerB === playerId)).sort((a, b) => (b.date || 0) - (a.date || 0));
   let streak = 0;
   let type = null; // "W" or "L"
   for (const m of playerMatches) {
