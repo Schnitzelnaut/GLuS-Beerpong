@@ -2430,6 +2430,204 @@ const css = `
   .setup-grid, .names-layout { grid-template-columns: 1fr; }
   .groups-grid { grid-template-columns: 1fr; }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   MOBILE-FIRST OVERRIDES (max-width: 768px)
+   ═══════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+
+  /* ── Bottom nav padding so content isn't hidden ── */
+  .liga-app-root, .admin-app-root { padding-bottom: 72px; }
+  #root > div { padding-bottom: 72px; }
+
+  /* ── Header: kompakter ── */
+  .header {
+    padding: 10px 14px 0;
+    gap: 8px;
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+  .logo-img { height: 46px; padding-bottom: 0; margin-bottom: 0; }
+  .logo-tagline { font-size: 9px; letter-spacing: 2px; padding-bottom: 8px; }
+  .header-right { gap: 6px; flex-wrap: nowrap; align-items: center; margin-left: auto; }
+
+  /* Tabs in Header verstecken — Bottom Nav übernimmt */
+  .tabs { display: none !important; }
+  .display-btn { display: none !important; }
+
+  /* Mode switch bleibt aber kompakter */
+  .mode-switch { gap: 4px; }
+  .mode-btn { padding: 5px 10px; font-size: 12px; }
+
+  /* Login-Button kompakter */
+  .login-btn { padding: 6px 10px; font-size: 12px; }
+
+  /* Sync-Badge kompakter */
+  .sync-badge { padding: 4px 8px; font-size: 11px; }
+
+  /* ── Content padding ── */
+  .content { padding: 12px; }
+  .liga-section { padding: 12px; }
+
+  /* ── Touch Targets: alles ≥ 44px ── */
+  button, .tab, select, input[type="checkbox"],
+  .player-link, .match-hist-del, .step-btn,
+  .win-btn, .mini-btn, .big-btn, .demo-btn,
+  .danger-btn, .hof-add-btn, .liga-add-btn,
+  .match-entry-winner-btn, .match-hist-del { min-height: 44px; }
+
+  .big-btn { min-height: 50px; font-size: 16px !important; }
+
+  /* ── Cards ── */
+  .card { padding: 14px; border-radius: 6px; }
+  .card-title { font-size: 16px; margin-bottom: 14px; }
+
+  /* ── Standings Tabelle: horizontal scrollbar ── */
+  .liga-stand { min-width: 420px; font-size: 13px; }
+  .liga-stand th, .liga-stand td { padding: 8px 6px; }
+  .liga-stand-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* ── Match Entry: größere Becher-Buttons ── */
+  .match-entry-cup-input {
+    font-size: 28px !important;
+    padding: 10px;
+    width: 70px;
+    text-align: center;
+  }
+  .match-entry-cups { gap: 8px; justify-content: center; }
+  .match-entry-row { gap: 8px; }
+  .match-entry-side { gap: 10px; }
+  .match-entry-select { font-size: 15px !important; padding: 12px 10px; }
+  .match-entry-winner { gap: 8px; }
+  .match-entry-winner-btn { min-height: 50px; font-size: 15px !important; padding: 12px; border-radius: 6px; }
+  .match-entry-submit { min-height: 54px; font-size: 20px !important; border-radius: 6px; }
+  .match-entry-vs { font-size: 20px; padding: 8px 4px; }
+
+  /* ── Ko-Bracket: scrollbar ── */
+  .ko-bracket-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 8px; }
+
+  /* ── Spielerliste ── */
+  .player-row { flex-wrap: wrap; gap: 8px; padding: 10px; min-height: 56px; }
+  .player-name { font-size: 15px; }
+
+  /* ── Profil ── */
+  .profile-back { min-height: 44px; padding: 10px 14px; font-size: 14px; }
+
+  /* ── Open pairs ── */
+  .open-pair-row { min-height: 48px; padding: 10px 8px; font-size: 14px; }
+
+  /* ── Match history ── */
+  .match-hist-row { padding: 10px 8px; min-height: 48px; gap: 6px; font-size: 13px; }
+  .match-hist-del { min-height: 38px; width: 38px; }
+
+  /* ── HOF ── */
+  .hof-grid { grid-template-columns: 1fr; }
+
+  /* ── Compare table ── */
+  .compare-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .compare-table { min-width: 600px; font-size: 13px; }
+
+  /* ── Confirm modals ── */
+  .confirm-card { max-width: 95vw; padding: 20px 16px; }
+
+  /* ── Achievements Grid ── */
+  .ach-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .ach-card { padding: 8px 6px; }
+  .ach-icon { font-size: 22px; }
+  .ach-name { font-size: 10px; }
+  .ach-desc { font-size: 9px; }
+
+  /* ── Turnier-Hub ── */
+  .tournaments-grid { grid-template-columns: 1fr; }
+  .wizard-options { grid-template-columns: 1fr 1fr; }
+}
+
+/* ── BOTTOM NAVIGATION BAR ── */
+.bottom-nav {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 64px;
+  background: rgba(10, 22, 10, 0.97);
+  border-top: 1px solid var(--border);
+  display: none; /* hidden on desktop */
+  align-items: stretch;
+  z-index: 100;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.bottom-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--dim);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  transition: color 0.15s;
+  padding: 0;
+  min-height: 44px;
+  position: relative;
+}
+.bottom-nav-item.active { color: var(--gold); }
+.bottom-nav-item.active::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 20%; right: 20%;
+  height: 2px;
+  background: var(--gold);
+  border-radius: 0 0 2px 2px;
+}
+.bottom-nav-icon { font-size: 20px; line-height: 1; }
+.bottom-nav-more-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.bottom-nav-more-backdrop {
+  flex: 1;
+  background: rgba(0,0,0,0.6);
+}
+.bottom-nav-more-content {
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+  border-radius: 16px 16px 0 0;
+  padding: 16px 0 calc(16px + env(safe-area-inset-bottom));
+}
+.bottom-nav-more-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 24px;
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  color: var(--text);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  cursor: pointer;
+  min-height: 52px;
+}
+.bottom-nav-more-item:active { background: rgba(255,255,255,0.05); }
+.bottom-nav-more-item.active-tab { color: var(--gold); }
+
+@media (max-width: 768px) {
+  .bottom-nav { display: flex; }
+}
 `;
 
 // ─── Display / TV Window ─────────────────────────────────────────────────────
@@ -2486,6 +2684,85 @@ function StreakBadge({
   return /*#__PURE__*/React.createElement("span", {
     className: `streak-badge ${s.type}`
   }, s.type === "W" ? "🔥" : "❄️", " ", s.count, s.type === "W" ? " Siege" : " Niederl.");
+}
+function BottomNav({
+  tab,
+  setTab,
+  tabs,
+  isAdmin,
+  isEditor
+}) {
+  const [showMore, setShowMore] = useState(false);
+
+  // Main tabs shown in bottom bar (max 5)
+  const mainTabIds = ["standings", "matchentry", "players", "compare", "achievements"];
+  // "More" sheet tabs (everything else)
+  const moreTabIds = tabs.filter(t => !mainTabIds.includes(t.id)).map(t => t.id);
+  const visibleMainTabs = tabs.filter(t => mainTabIds.includes(t.id));
+  const icons = {
+    standings: "🏆",
+    matchentry: "⚔️",
+    players: "👥",
+    compare: "📊",
+    achievements: "🏅",
+    hof: "🌟",
+    archive: "📁",
+    backups: "💾",
+    settings: "⚙️"
+  };
+  const labels = {
+    standings: "Tabelle",
+    matchentry: "Spiel",
+    players: "Spieler",
+    compare: "Vergleich",
+    achievements: "Awards",
+    hof: "Hall of Fame",
+    archive: "Archiv",
+    backups: "Backups",
+    settings: "Einst."
+  };
+  const isMoreActive = moreTabIds.includes(tab);
+  return /*#__PURE__*/React.createElement(React.Fragment, null, showMore && /*#__PURE__*/React.createElement("div", {
+    className: "bottom-nav-more-sheet"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "bottom-nav-more-backdrop",
+    onClick: () => setShowMore(false)
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "bottom-nav-more-content"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "8px 24px 14px",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      fontSize: 11,
+      letterSpacing: 3,
+      color: "var(--dim)",
+      textTransform: "uppercase"
+    }
+  }, "Weitere Tabs"), tabs.filter(t => moreTabIds.includes(t.id)).map(t => /*#__PURE__*/React.createElement("button", {
+    key: t.id,
+    className: `bottom-nav-more-item${tab === t.id ? " active-tab" : ""}`,
+    onClick: () => {
+      setTab(t.id);
+      setShowMore(false);
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 22
+    }
+  }, icons[t.id] || "•"), t.label)))), /*#__PURE__*/React.createElement("nav", {
+    className: "bottom-nav"
+  }, visibleMainTabs.map(t => /*#__PURE__*/React.createElement("button", {
+    key: t.id,
+    className: `bottom-nav-item${tab === t.id ? " active" : ""}`,
+    onClick: () => setTab(t.id)
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "bottom-nav-icon"
+  }, icons[t.id] || "•"), /*#__PURE__*/React.createElement("span", null, labels[t.id] || t.label))), moreTabIds.length > 0 && /*#__PURE__*/React.createElement("button", {
+    className: `bottom-nav-item${isMoreActive ? " active" : ""}`,
+    onClick: () => setShowMore(s => !s)
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "bottom-nav-icon"
+  }, isMoreActive ? icons[tab] || "•••" : "•••"), /*#__PURE__*/React.createElement("span", null, "Mehr"))));
 }
 function BackupsTab({
   currentState,
@@ -3471,7 +3748,7 @@ function LigaApp({
   // If current tab is no longer accessible, fall back to standings
   useEffect(() => {
     const allowed = ["standings", "compare", "achievements", "hof", "archive"];
-    if (canEdit) allowed.push("match");
+    if (canEdit) allowed.push("matchentry");
     if (isAdmin) allowed.push("players", "settings", "backups");
     if (!allowed.includes(tab)) setLigaTab("standings");
   }, [role, tab, canEdit, isAdmin]);
@@ -3883,7 +4160,7 @@ function LigaApp({
     id: "standings",
     label: "📊 Tabellen"
   }, ...(canEdit ? [{
-    id: "match",
+    id: "matchentry",
     label: "⚔️ Spiel eintragen"
   }] : []), ...(isAdmin ? [{
     id: "players",
@@ -4194,7 +4471,9 @@ function LigaApp({
       }
     }, "\u25BC ", cfg.relegate, " ab"))), standings.length === 0 ? /*#__PURE__*/React.createElement("div", {
       className: "liga-empty"
-    }, "Keine Spieler in dieser Liga") : /*#__PURE__*/React.createElement("table", {
+    }, "Keine Spieler in dieser Liga") : /*#__PURE__*/React.createElement("div", {
+      className: "liga-stand-wrap"
+    }, /*#__PURE__*/React.createElement("table", {
       className: "liga-stand"
     }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "#"), /*#__PURE__*/React.createElement("th", {
       style: {
@@ -4234,8 +4513,8 @@ function LigaApp({
       }, s.diff > 0 ? "+" : "", s.diff), /*#__PURE__*/React.createElement("td", {
         className: "liga-pts-cell"
       }, s.points));
-    }))));
-  }))), tab === "match" && canEdit && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    })))));
+  }))), tab === "matchentry" && canEdit && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "match-entry-card"
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -5879,10 +6158,17 @@ function LigaApp({
         setConfirmAction(null);
       }
     })
-  }, "\uD83D\uDC80 Komplett zur\xFCcksetzen"))))))));
+  }, "\uD83D\uDC80 Komplett zur\xFCcksetzen"))))))), /*#__PURE__*/React.createElement(BottomNav, {
+    tab: tab,
+    setTab: t => {
+      setLigaTab(t);
+      setViewProfileId(null);
+    },
+    tabs: tabs,
+    isAdmin: isAdmin,
+    isEditor: isEditor
+  }));
 }
-
-// Lets you pick players from the Liga as tournament participants
 function LigaParticipantPicker({
   names,
   numPlayers,
