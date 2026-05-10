@@ -1736,6 +1736,10 @@ const css = `
 
 /* H2H section */
 .h2h-selectors { display: grid; grid-template-columns: 1fr auto 1fr; gap: 14px; margin-bottom: 18px; align-items: center; }
+@media (max-width: 768px) {
+  .h2h-selectors { grid-template-columns: 1fr; gap: 8px; }
+  .h2h-selectors .match-entry-vs { text-align: center; font-size: 20px; }
+}
 .h2h-vs-label { font-family: 'Permanent Marker', cursive; font-size: 26px; color: var(--gold); }
 .h2h-bilanz { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 18px; }
 @media (max-width: 768px) {
