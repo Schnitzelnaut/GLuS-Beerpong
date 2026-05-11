@@ -2929,6 +2929,11 @@ function AccountManagement({
 }) {
   const [accounts, setAccounts] = useState({});
   const [loading, setLoading] = useState(true);
+  const [adjustId, setAdjustId] = useState(null); // account being adjusted
+  const [adjustMode, setAdjustMode] = useState("deposit"); // "deposit" | "withdraw"
+  const [adjustAmount, setAdjustAmount] = useState("");
+  const [adjustNote, setAdjustNote] = useState("");
+  const [showHistory, setShowHistory] = useState(null);
   useEffect(() => {
     fetchAllAccounts().then(data => {
       setAccounts(data || {});
@@ -2950,22 +2955,57 @@ function AccountManagement({
     editor: "✏️ Editor",
     viewer: "👁️ Viewer"
   };
+  async function handleAdjust(acc) {
+    const amount = parseFloat(adjustAmount);
+    if (!amount || amount <= 0) return;
+    const currentBalance = acc.balance || 0;
+    const newBalance = adjustMode === "deposit" ? currentBalance + amount : Math.max(0, currentBalance - amount);
+    const tx = {
+      id: "tx_" + Date.now(),
+      date: Date.now(),
+      type: adjustMode,
+      amount: adjustMode === "deposit" ? amount : -amount,
+      description: adjustNote.trim() || (adjustMode === "deposit" ? "Einzahlung" : "Auszahlung")
+    };
+    const updated = {
+      ...acc,
+      balance: Math.round(newBalance * 100) / 100,
+      transactions: [tx, ...(acc.transactions || [])]
+    };
+    await writeAccount(updated);
+    setAccounts(prev => ({
+      ...prev,
+      [acc.id]: updated
+    }));
+    // Update currentUser if it's the same person
+    if (currentUser?.id === acc.id) saveCurrentUser({
+      ...currentUser,
+      balance: updated.balance
+    });
+    setAdjustId(null);
+    setAdjustAmount("");
+    setAdjustNote("");
+  }
   return /*#__PURE__*/React.createElement("div", {
     className: "card"
   }, /*#__PURE__*/React.createElement("div", {
     className: "card-title"
-  }, "\uD83D\uDC65 Benutzerverwaltung"), loading ? /*#__PURE__*/React.createElement("div", {
+  }, "\uD83D\uDC65 Benutzerverwaltung & Konten"), loading ? /*#__PURE__*/React.createElement("div", {
     className: "liga-empty"
   }, "L\xE4dt...") : list.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "liga-empty"
   }, "Noch keine Accounts erstellt.") : /*#__PURE__*/React.createElement("div", null, list.map(acc => /*#__PURE__*/React.createElement("div", {
     key: acc.id,
     style: {
+      borderBottom: "1px solid var(--border)",
+      paddingBottom: 12,
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
       display: "flex",
       alignItems: "center",
       gap: 10,
-      padding: "10px 0",
-      borderBottom: "1px solid var(--border)",
       flexWrap: "wrap"
     }
   }, /*#__PURE__*/React.createElement("div", {
@@ -2986,8 +3026,28 @@ function AccountManagement({
     }
   }, roleLabels[acc.role] || acc.role)), /*#__PURE__*/React.createElement("div", {
     style: {
+      textAlign: "center",
+      minWidth: 80
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: "var(--dim)",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      letterSpacing: 1.5,
+      textTransform: "uppercase"
+    }
+  }, "Konto"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "'Permanent Marker',cursive",
+      fontSize: 20,
+      color: (acc.balance || 0) >= 0 ? "var(--gold)" : "#ff8a8a"
+    }
+  }, (acc.balance || 0).toFixed(2), "\u20AC")), /*#__PURE__*/React.createElement("div", {
+    style: {
       display: "flex",
-      gap: 6
+      gap: 4,
+      flexWrap: "wrap"
     }
   }, ["viewer", "editor", "admin"].map(r => /*#__PURE__*/React.createElement("button", {
     key: r,
@@ -2999,7 +3059,159 @@ function AccountManagement({
       color: acc.role === r ? roleColors[r] : "var(--dim)"
     },
     onClick: () => onRoleChange(acc.id, r)
-  }, r)))))));
+  }, r)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      marginTop: 10,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "demo-btn",
+    style: {
+      fontSize: 12,
+      padding: "6px 12px",
+      color: "#8bc34a",
+      borderColor: "#8bc34a"
+    },
+    onClick: () => {
+      setAdjustId(acc.id);
+      setAdjustMode("deposit");
+      setAdjustAmount("");
+      setAdjustNote("");
+    }
+  }, "+ Einzahlen"), /*#__PURE__*/React.createElement("button", {
+    className: "demo-btn",
+    style: {
+      fontSize: 12,
+      padding: "6px 12px",
+      color: "#ff8a8a",
+      borderColor: "#ff8a8a"
+    },
+    onClick: () => {
+      setAdjustId(acc.id);
+      setAdjustMode("withdraw");
+      setAdjustAmount("");
+      setAdjustNote("");
+    }
+  }, "\u2212 Auszahlen"), (acc.transactions || []).length > 0 && /*#__PURE__*/React.createElement("button", {
+    className: "demo-btn",
+    style: {
+      fontSize: 12,
+      padding: "6px 12px"
+    },
+    onClick: () => setShowHistory(showHistory === acc.id ? null : acc.id)
+  }, "\uD83D\uDCCB Verlauf (", (acc.transactions || []).length, ")")), adjustId === acc.id && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10,
+      padding: 12,
+      background: "rgba(10,28,10,0.5)",
+      borderRadius: 6
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "'Barlow Condensed',sans-serif",
+      fontSize: 12,
+      color: adjustMode === "deposit" ? "#8bc34a" : "#ff8a8a",
+      letterSpacing: 1.5,
+      textTransform: "uppercase",
+      marginBottom: 8
+    }
+  }, adjustMode === "deposit" ? "Einzahlung eintragen" : "Auszahlung / Abbuchung"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr auto",
+      gap: 8,
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "relative"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "liga-add-input",
+    type: "number",
+    min: "0.50",
+    step: "0.50",
+    placeholder: "Betrag",
+    value: adjustAmount,
+    onChange: e => setAdjustAmount(e.target.value),
+    style: {
+      width: "100%",
+      paddingRight: 24
+    },
+    autoFocus: true
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      position: "absolute",
+      right: 8,
+      top: "50%",
+      transform: "translateY(-50%)",
+      color: "var(--dim)"
+    }
+  }, "\u20AC")), /*#__PURE__*/React.createElement("input", {
+    className: "liga-add-input",
+    placeholder: "Notiz (optional)",
+    value: adjustNote,
+    onChange: e => setAdjustNote(e.target.value),
+    onKeyDown: e => e.key === "Enter" && handleAdjust(acc)
+  }), /*#__PURE__*/React.createElement("button", {
+    className: "big-btn",
+    style: {
+      margin: 0,
+      padding: "8px 14px",
+      fontSize: 14,
+      background: adjustMode === "deposit" ? "#8bc34a" : "#bf6a6a"
+    },
+    onClick: () => handleAdjust(acc)
+  }, "\u2713")), adjustMode === "withdraw" && adjustAmount && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--dim)",
+      marginTop: 6
+    }
+  }, "Danach: ", Math.max(0, (acc.balance || 0) - parseFloat(adjustAmount || 0)).toFixed(2), "\u20AC"), /*#__PURE__*/React.createElement("button", {
+    className: "demo-btn",
+    style: {
+      marginTop: 8,
+      width: "100%",
+      fontSize: 12
+    },
+    onClick: () => setAdjustId(null)
+  }, "Abbrechen")), showHistory === acc.id && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10,
+      maxHeight: 200,
+      overflowY: "auto"
+    }
+  }, (acc.transactions || []).slice(0, 30).map(tx => /*#__PURE__*/React.createElement("div", {
+    key: tx.id,
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      padding: "6px 0",
+      borderBottom: "1px solid rgba(255,255,255,0.05)",
+      fontSize: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "var(--dim)"
+    }
+  }, new Date(tx.date).toLocaleDateString("de-DE")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      padding: "0 10px",
+      color: "var(--text)"
+    }
+  }, tx.description), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      color: tx.amount >= 0 ? "#8bc34a" : "#ff8a8a",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      fontSize: 13
+    }
+  }, tx.amount >= 0 ? "+" : "", tx.amount?.toFixed(2), "\u20AC"))))))));
 }
 function BottomNav({
   tab,
@@ -3134,6 +3346,46 @@ function BettingTab({
   const [bettorName, setBettorName] = useState(currentUser?.name || "");
   const [bettorSide, setBettorSide] = useState("A");
   const [bettorAmount, setBettorAmount] = useState("");
+  const [accounts, setAccounts] = useState({});
+
+  // Load accounts for balance display
+  useEffect(() => {
+    fetchAllAccounts().then(data => setAccounts(data || {}));
+    const es = subscribeAccounts(data => setAccounts(data || {}));
+    return () => {
+      if (es) es.close();
+    };
+  }, []);
+  const myAccount = currentUser ? Object.values(accounts).find(a => a.id === currentUser.id) : null;
+  const myBalance = myAccount?.balance || 0;
+
+  // Update account balance in Firebase
+  async function adjustAccountBalance(accountId, delta, description) {
+    const acc = Object.values(accounts).find(a => a.id === accountId);
+    if (!acc) return;
+    const newBalance = Math.round(((acc.balance || 0) + delta) * 100) / 100;
+    const tx = {
+      id: "tx_" + Date.now(),
+      date: Date.now(),
+      type: delta >= 0 ? "win" : "bet",
+      amount: delta,
+      description
+    };
+    const updated = {
+      ...acc,
+      balance: newBalance,
+      transactions: [tx, ...(acc.transactions || [])]
+    };
+    await writeAccount(updated);
+    setAccounts(prev => ({
+      ...prev,
+      [accountId]: updated
+    }));
+    if (currentUser?.id === accountId) saveCurrentUser({
+      ...currentUser,
+      balance: newBalance
+    });
+  }
   const safeBets = bets || [];
 
   // Garten Kasse
@@ -3195,34 +3447,58 @@ function BettingTab({
     }]);
     setTeamSize(1);
   }
-  function addBettor(betId) {
+  async function addBettor(betId) {
     if (!bettorName.trim() || !bettorAmount || parseFloat(bettorAmount) <= 0) return;
     const bet = safeBets.find(b => b.id === betId);
     if (!bet) return;
     const amount = parseFloat(bettorAmount);
     const odds = bettorSide === "A" ? bet.oddsA : bet.oddsB;
     const payout = Math.round(amount * odds * 100) / 100;
+
+    // Find account for this bettor
+    const bettorAccount = Object.values(accounts).find(a => a.name.toLowerCase() === bettorName.trim().toLowerCase());
+    const accountId = bettorAccount?.id || null;
+
+    // Check balance if account exists
+    if (accountId) {
+      const bal = bettorAccount.balance || 0;
+      if (bal < amount) {
+        alert(`${bettorName} hat nur ${bal.toFixed(2)}€ auf dem Konto. Einsatz zu hoch!`);
+        return;
+      }
+      // Deduct from balance
+      await adjustAccountBalance(accountId, -amount, `Wetteinsatz: ${bet.playersA.map(p => p.name).join("+")} vs ${bet.playersB.map(p => p.name).join("+")}`);
+    }
     const newBettor = {
       id: "bt_" + Date.now(),
       name: bettorName.trim(),
       side: bettorSide,
       amount,
       payout,
-      paid: false
+      paid: false,
+      accountId
     };
     onUpdate(safeBets.map(b => b.id !== betId ? b : {
       ...b,
       bettors: [...(b.bettors || []), newBettor]
     }));
-    setBettorName("");
+    setBettorName(currentUser?.name || "");
     setBettorAmount("");
     setAddBettorId(null);
   }
-  function settleBet(betId, winner) {
+  async function settleBet(betId, winner) {
     const bet = safeBets.find(b => b.id === betId);
     if (!bet) return;
     const allIn = (bet.bettors || []).reduce((s, bt) => s + bt.amount, 0);
-    const paidOut = (bet.bettors || []).filter(bt => bt.side === winner).reduce((s, bt) => s + bt.payout, 0);
+    const winners = (bet.bettors || []).filter(bt => bt.side === winner);
+    const paidOut = winners.reduce((s, bt) => s + bt.payout, 0);
+
+    // Credit winners with accounts
+    for (const bt of winners) {
+      if (bt.accountId) {
+        await adjustAccountBalance(bt.accountId, bt.payout, `Wettgewinn (${bet.playersA.map(p => p.name).join("+")} vs ${bet.playersB.map(p => p.name).join("+")})`);
+      }
+    }
     onUpdate(safeBets.map(b => b.id !== betId ? b : {
       ...b,
       status: "settled",
@@ -3239,7 +3515,90 @@ function BettingTab({
     onUpdate(safeBets.filter(b => b.id !== betId));
   }
   const odds = showNew ? calcTeamOdds(slotsA, slotsB, players, matches, archive, numLeagues) : null;
-  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  return /*#__PURE__*/React.createElement("div", null, currentUser && /*#__PURE__*/React.createElement("div", {
+    className: "card",
+    style: {
+      marginBottom: 14,
+      borderColor: myBalance > 0 ? "#5a5020" : "var(--border)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      flexWrap: "wrap",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--dim)",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      letterSpacing: 1.5,
+      textTransform: "uppercase",
+      marginBottom: 2
+    }
+  }, "\uD83D\uDCB3 Mein Konto"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "'Permanent Marker',cursive",
+      fontSize: 32,
+      color: myBalance > 0 ? "var(--gold)" : myBalance < 0 ? "#ff8a8a" : "var(--dim)"
+    }
+  }, myBalance.toFixed(2), "\u20AC")), myBalance > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "info-box",
+    style: {
+      margin: 0,
+      fontSize: 12
+    }
+  }, "Guthaben kann f\xFCr Wetten genutzt werden. F\xFCr Auszahlung Admin kontaktieren."), myBalance === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--dim)"
+    }
+  }, "Kein Guthaben. Admin kann einzahlen.")), (myAccount?.transactions || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 12,
+      borderTop: "1px solid var(--border)",
+      paddingTop: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: "var(--dim)",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      letterSpacing: 1.5,
+      textTransform: "uppercase",
+      marginBottom: 6
+    }
+  }, "Letzte Transaktionen"), (myAccount.transactions || []).slice(0, 5).map(tx => /*#__PURE__*/React.createElement("div", {
+    key: tx.id,
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      fontSize: 12,
+      padding: "4px 0",
+      borderBottom: "1px solid rgba(255,255,255,0.04)"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "var(--dim)"
+    }
+  }, new Date(tx.date).toLocaleDateString("de-DE")), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "var(--text)",
+      flex: 1,
+      padding: "0 8px",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, tx.description), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontWeight: 700,
+      color: tx.amount >= 0 ? "#8bc34a" : "#ff8a8a",
+      fontFamily: "'Barlow Condensed',sans-serif"
+    }
+  }, tx.amount >= 0 ? "+" : "", tx.amount?.toFixed(2), "\u20AC"))))), /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       marginBottom: 18,
@@ -3652,7 +4011,13 @@ function BettingTab({
       style: {
         fontSize: 14
       }
-    }, bt.name)), /*#__PURE__*/React.createElement("div", {
+    }, bt.name, bt.accountId && /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--gold)",
+        fontSize: 11,
+        marginLeft: 4
+      }
+    }, "\uD83D\uDCB3"))), /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
         gap: 12,
@@ -3688,8 +4053,13 @@ function BettingTab({
       className: "liga-add-input",
       placeholder: "Name des Setzers",
       value: bettorName,
-      onChange: e => setBettorName(e.target.value),
-      autoFocus: true
+      onChange: e => !currentUser && setBettorName(e.target.value),
+      readOnly: !!currentUser,
+      style: currentUser ? {
+        background: "rgba(240,192,64,0.05)",
+        borderColor: "var(--gold)"
+      } : {},
+      autoFocus: !currentUser
     }), /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
@@ -3707,7 +4077,22 @@ function BettingTab({
         color: "#ff8a8a"
       },
       onClick: () => setBettorSide("B")
-    }, "Team B"))), /*#__PURE__*/React.createElement("div", {
+    }, "Team B"))), currentUser && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        marginBottom: 8,
+        fontFamily: "'Barlow Condensed',sans-serif"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: myBalance > 0 ? "var(--gold)" : "#ff8a8a"
+      }
+    }, "\uD83D\uDCB3 Dein Guthaben: ", myBalance.toFixed(2), "\u20AC"), bettorAmount && parseFloat(bettorAmount) > myBalance && /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "#ff8a8a",
+        marginLeft: 8
+      }
+    }, "\u26A0\uFE0F Nicht genug!")), /*#__PURE__*/React.createElement("div", {
       style: {
         display: "grid",
         gridTemplateColumns: "1fr auto auto",
@@ -5547,8 +5932,6 @@ function LigaApp({
     className: `sync-badge sync-${syncStatus}`,
     title: syncStatus === "live" ? "Live mit allen Geräten synchronisiert" : syncStatus === "offline" ? "Offline — Änderungen werden lokal gespeichert" : "Verbinde..."
   }, syncStatus === "live" ? "🟢 Sync" : syncStatus === "offline" ? "🔴 Offline" : "🟡 Verbinde"), role === "admin" && /*#__PURE__*/React.createElement("span", {
-    className: "role-badge role-admin"
-  }, "\uD83D\uDC51 Admin"), role === "admin" && /*#__PURE__*/React.createElement("span", {
     className: "role-badge role-admin"
   }, "\uD83D\uDC51 Admin"), role === "editor" && /*#__PURE__*/React.createElement("span", {
     className: "role-badge role-editor"
