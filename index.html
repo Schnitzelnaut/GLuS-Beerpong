@@ -3776,6 +3776,18 @@ function LigaApp({
   }
 
   // ── Mutations (only callable when canEdit / isAdmin) ──
+  const [editPlayerId, setEditPlayerId] = useState(null);
+  const editPlayer = players.find(p => p.id === editPlayerId);
+  function savePlayerEdit(id, changes) {
+    if (!isAdmin) return;
+    update({
+      players: players.map(p => p.id === id ? {
+        ...p,
+        ...changes
+      } : p)
+    });
+    setEditPlayerId(null);
+  }
   function addPlayer(targetLeague) {
     if (!isAdmin) return;
     const name = newPlayerName.trim();
@@ -4307,7 +4319,73 @@ function LigaApp({
         setPendingDestructiveWrite(null);
       });
     }
-  }, "\u26A0\uFE0F Trotzdem schreiben (Backup wird vorher gespeichert)")))), showLogin && /*#__PURE__*/React.createElement("div", {
+  }, "\u26A0\uFE0F Trotzdem schreiben (Backup wird vorher gespeichert)")))), editPlayerId && editPlayer && /*#__PURE__*/React.createElement("div", {
+    className: "confirm-modal",
+    onClick: e => e.target === e.currentTarget && setEditPlayerId(null)
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "confirm-card",
+    style: {
+      maxWidth: 420
+    }
+  }, /*#__PURE__*/React.createElement("h3", {
+    style: {
+      marginBottom: 16
+    }
+  }, "\u270F\uFE0F Spieler bearbeiten"), [{
+    label: "Name",
+    field: "name",
+    type: "text",
+    defaultValue: editPlayer.name
+  }].map(({
+    label,
+    field,
+    type,
+    defaultValue
+  }) => /*#__PURE__*/React.createElement("div", {
+    key: field,
+    style: {
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--dim)",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      letterSpacing: 1.5,
+      textTransform: "uppercase",
+      marginBottom: 5
+    }
+  }, label), /*#__PURE__*/React.createElement("input", {
+    id: `edit-player-${field}`,
+    className: "liga-add-input",
+    style: {
+      width: "100%"
+    },
+    type: type,
+    defaultValue: defaultValue,
+    autoFocus: field === "name"
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "confirm-actions",
+    style: {
+      marginTop: 20
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "demo-btn",
+    onClick: () => setEditPlayerId(null)
+  }, "Abbrechen"), /*#__PURE__*/React.createElement("button", {
+    className: "big-btn",
+    style: {
+      margin: 0,
+      maxWidth: 160
+    },
+    onClick: () => {
+      const name = document.getElementById(`edit-player-name`)?.value?.trim();
+      if (!name) return;
+      savePlayerEdit(editPlayerId, {
+        name
+      });
+    }
+  }, "Speichern")))), showLogin && /*#__PURE__*/React.createElement("div", {
     className: "confirm-modal",
     onClick: e => e.target === e.currentTarget && setShowLogin(false)
   }, /*#__PURE__*/React.createElement("div", {
@@ -5053,7 +5131,15 @@ function LigaApp({
         gap: 6,
         alignItems: "center"
       }
-    }, /*#__PURE__*/React.createElement("select", {
+    }, /*#__PURE__*/React.createElement("button", {
+      className: "match-hist-del",
+      style: {
+        borderColor: "#5a5020",
+        color: "var(--gold)"
+      },
+      onClick: () => setEditPlayerId(p.id),
+      title: "Spieler bearbeiten"
+    }, "\u270F"), /*#__PURE__*/React.createElement("select", {
       className: "player-league-select",
       value: p.league,
       onChange: e => changePlayerLeague(p.id, parseInt(e.target.value))
