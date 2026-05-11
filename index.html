@@ -2902,7 +2902,7 @@ function BettingTab({
     };
     onUpdate(safeBets.map(b => b.id !== betId ? b : {
       ...b,
-      bettors: [...b.bettors, newBettor]
+      bettors: [...(b.bettors || []), newBettor]
     }));
     setBettorName("");
     setBettorAmount("");
@@ -2911,15 +2911,15 @@ function BettingTab({
   function settleBet(betId, winner) {
     const bet = safeBets.find(b => b.id === betId);
     if (!bet) return;
-    const allIn = bet.bettors.reduce((s, bt) => s + bt.amount, 0);
-    const paidOut = bet.bettors.filter(bt => bt.side === winner).reduce((s, bt) => s + bt.payout, 0);
+    const allIn = (bet.bettors || []).reduce((s, bt) => s + bt.amount, 0);
+    const paidOut = (bet.bettors || []).filter(bt => bt.side === winner).reduce((s, bt) => s + bt.payout, 0);
     onUpdate(safeBets.map(b => b.id !== betId ? b : {
       ...b,
       status: "settled",
       winner,
       gartenIn: allIn,
       gartenOut: paidOut,
-      bettors: b.bettors.map(bt => ({
+      bettors: (b.bettors || []).map(bt => ({
         ...bt,
         paid: bt.side === winner
       }))
@@ -3196,8 +3196,8 @@ function BettingTab({
   }, "Noch keine Wetten. Los geht's!"), safeBets.map(bet => {
     const teamALabel = bet.playersA.map(p => p.name).join(" + ");
     const teamBLabel = bet.playersB.map(p => p.name).join(" + ");
-    const totalIn = bet.bettors.reduce((s, b) => s + b.amount, 0);
-    const totalWinnersOut = bet.bettors.filter(b => b.side === bet.winner).reduce((s, b) => s + b.payout, 0);
+    const totalIn = (bet.bettors || []).reduce((s, b) => s + b.amount, 0);
+    const totalWinnersOut = (bet.bettors || []).filter(b => b.side === bet.winner).reduce((s, b) => s + b.payout, 0);
     const isOpen = bet.status === "open";
     return /*#__PURE__*/React.createElement("div", {
       key: bet.id,
@@ -3297,7 +3297,7 @@ function BettingTab({
         color: "#ff8a8a",
         marginTop: 2
       }
-    }, "\uD83C\uDFC6 Gewinner"))), bet.bettors.length > 0 && /*#__PURE__*/React.createElement("div", {
+    }, "\uD83C\uDFC6 Gewinner"))), (bet.bettors || []).length > 0 && /*#__PURE__*/React.createElement("div", {
       style: {
         marginBottom: 12
       }
@@ -3310,7 +3310,7 @@ function BettingTab({
         textTransform: "uppercase",
         marginBottom: 8
       }
-    }, "Setzer (", bet.bettors.length, ") \xB7 Einsatz: ", totalIn.toFixed(2), "\u20AC", !isOpen ? ` · Auszahlung: ${totalWinnersOut.toFixed(2)}€` : ""), bet.bettors.map(bt => /*#__PURE__*/React.createElement("div", {
+    }, "Setzer (", bet.bettors.length, ") \xB7 Einsatz: ", totalIn.toFixed(2), "\u20AC", !isOpen ? ` · Auszahlung: ${totalWinnersOut.toFixed(2)}€` : ""), (bet.bettors || []).map(bt => /*#__PURE__*/React.createElement("div", {
       key: bt.id,
       style: {
         display: "flex",
