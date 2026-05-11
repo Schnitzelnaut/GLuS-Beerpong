@@ -12,6 +12,50 @@ const LOGO_URL="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUAAAAE4CAMAAAAdP9
 const FONTS = `@import url('https://fonts.googleapis.com/css2?family=Permanent+Marker&family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@300;400;500&display=swap');`;
 const STORAGE_KEY = "glus_turnier_state";
 const LIGA_STORAGE_KEY = "glus_liga_state";
+const ACCOUNTS_FB_PATH = "accounts";
+const CURRENT_USER_KEY = "glus_current_user"; // {id, name, role} in localStorage
+
+// Simple password hash (good enough for friend group)
+function hashPw(password) {
+  const str = password + "GLuS_2026_salt";
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) {
+    h = (h << 5) + h ^ str.charCodeAt(i);
+    h = h & h;
+  }
+  return Math.abs(h).toString(36);
+}
+
+// Account Firebase helpers
+async function fetchAllAccounts() {
+  return fetchFirebase(ACCOUNTS_FB_PATH);
+}
+function writeAccount(account) {
+  return writeFirebase(`${ACCOUNTS_FB_PATH}/${account.id}`, account);
+}
+function subscribeAccounts(cb) {
+  return subscribeFirebase(ACCOUNTS_FB_PATH, cb);
+}
+
+// Current user helpers
+function loadCurrentUser() {
+  try {
+    const u = localStorage.getItem(CURRENT_USER_KEY);
+    return u ? JSON.parse(u) : null;
+  } catch {
+    return null;
+  }
+}
+function saveCurrentUser(user) {
+  try {
+    localStorage.setItem(CURRENT_USER_KEY, user ? JSON.stringify(user) : "");
+  } catch {}
+}
+function clearCurrentUser() {
+  try {
+    localStorage.removeItem(CURRENT_USER_KEY);
+  } catch {}
+}
 const TOURNAMENTS_FB_PATH = "tournaments";
 
 // Default state for a new tournament
@@ -2693,6 +2737,270 @@ function StreakBadge({
     className: `streak-badge ${s.type}`
   }, s.type === "W" ? "🔥" : "❄️", " ", s.count, s.type === "W" ? " Siege" : " Niederl.");
 }
+
+// ─── ACCOUNT SYSTEM ──────────────────────────────────────────────────────────
+
+function AccountModal({
+  onClose,
+  onLogin
+}) {
+  const [screen, setScreen] = useState("login"); // "login" | "register"
+  const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  async function handleLogin() {
+    if (!name.trim() || !password) return;
+    setLoading(true);
+    setError("");
+    try {
+      const accounts = await fetchAllAccounts();
+      const list = accounts ? Object.values(accounts) : [];
+      const match = list.find(a => a.name.toLowerCase() === name.trim().toLowerCase() && a.passwordHash === hashPw(password));
+      if (!match) {
+        setError("Name oder Passwort falsch.");
+        setLoading(false);
+        return;
+      }
+      const user = {
+        id: match.id,
+        name: match.name,
+        role: match.role
+      };
+      saveCurrentUser(user);
+      onLogin(user);
+      onClose();
+    } catch (e) {
+      setError("Fehler: " + e.message);
+    }
+    setLoading(false);
+  }
+  async function handleRegister() {
+    if (!name.trim() || password.length < 3) {
+      setError("Name und Passwort (min. 3 Zeichen) erforderlich.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const accounts = await fetchAllAccounts();
+      const list = accounts ? Object.values(accounts) : [];
+      if (list.find(a => a.name.toLowerCase() === name.trim().toLowerCase())) {
+        setError("Dieser Name ist bereits vergeben.");
+        setLoading(false);
+        return;
+      }
+      const id = "u_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
+      const account = {
+        id,
+        name: name.trim(),
+        passwordHash: hashPw(password),
+        role: "viewer",
+        createdAt: Date.now()
+      };
+      await writeAccount(account);
+      const user = {
+        id,
+        name: account.name,
+        role: "viewer"
+      };
+      saveCurrentUser(user);
+      onLogin(user);
+      onClose();
+    } catch (e) {
+      setError("Fehler: " + e.message);
+    }
+    setLoading(false);
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "confirm-modal",
+    onClick: e => e.target === e.currentTarget && onClose()
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "confirm-card",
+    style: {
+      maxWidth: 380
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 0,
+      marginBottom: 20,
+      background: "rgba(10,28,10,0.5)",
+      borderRadius: 6,
+      padding: 3
+    }
+  }, ["login", "register"].map(s => /*#__PURE__*/React.createElement("button", {
+    key: s,
+    onClick: () => {
+      setScreen(s);
+      setError("");
+    },
+    style: {
+      flex: 1,
+      padding: "8px",
+      borderRadius: 4,
+      border: "none",
+      cursor: "pointer",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      fontWeight: 700,
+      fontSize: 13,
+      letterSpacing: 1,
+      textTransform: "uppercase",
+      background: screen === s ? "var(--gold)" : "transparent",
+      color: screen === s ? "#0e1a0e" : "var(--dim)"
+    }
+  }, s === "login" ? "Anmelden" : "Registrieren"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--dim)",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      letterSpacing: 1.5,
+      textTransform: "uppercase",
+      marginBottom: 5
+    }
+  }, "Name"), /*#__PURE__*/React.createElement("input", {
+    className: "liga-add-input",
+    style: {
+      width: "100%"
+    },
+    placeholder: "Dein Name",
+    value: name,
+    onChange: e => setName(e.target.value),
+    autoFocus: true
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--dim)",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      letterSpacing: 1.5,
+      textTransform: "uppercase",
+      marginBottom: 5
+    }
+  }, "Passwort"), /*#__PURE__*/React.createElement("input", {
+    className: "liga-add-input",
+    style: {
+      width: "100%"
+    },
+    type: "password",
+    placeholder: screen === "register" ? "Mind. 3 Zeichen" : "Passwort",
+    value: password,
+    onChange: e => setPassword(e.target.value),
+    onKeyDown: e => e.key === "Enter" && (screen === "login" ? handleLogin() : handleRegister())
+  })), error && /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#ff8a8a",
+      fontSize: 13,
+      marginBottom: 12,
+      padding: "8px 10px",
+      background: "rgba(191,106,106,0.1)",
+      borderRadius: 4
+    }
+  }, error), screen === "register" && /*#__PURE__*/React.createElement("div", {
+    className: "info-box",
+    style: {
+      marginBottom: 12
+    }
+  }, "Dein Account startet als ", /*#__PURE__*/React.createElement("strong", null, "Viewer"), ". Ein Admin kann dir eine andere Rolle geben."), /*#__PURE__*/React.createElement("div", {
+    className: "confirm-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "demo-btn",
+    onClick: onClose
+  }, "Abbrechen"), /*#__PURE__*/React.createElement("button", {
+    className: "big-btn",
+    style: {
+      margin: 0,
+      maxWidth: 160
+    },
+    disabled: loading,
+    onClick: screen === "login" ? handleLogin : handleRegister
+  }, loading ? "..." : screen === "login" ? "Anmelden" : "Registrieren"))));
+}
+function AccountManagement({
+  currentUser,
+  onRoleChange
+}) {
+  const [accounts, setAccounts] = useState({});
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    fetchAllAccounts().then(data => {
+      setAccounts(data || {});
+      setLoading(false);
+    });
+    const es = subscribeAccounts(data => setAccounts(data || {}));
+    return () => {
+      if (es) es.close();
+    };
+  }, []);
+  const list = Object.values(accounts).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  const roleColors = {
+    admin: "#f0c040",
+    editor: "#8bc34a",
+    viewer: "var(--dim)"
+  };
+  const roleLabels = {
+    admin: "👑 Admin",
+    editor: "✏️ Editor",
+    viewer: "👁️ Viewer"
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "\uD83D\uDC65 Benutzerverwaltung"), loading ? /*#__PURE__*/React.createElement("div", {
+    className: "liga-empty"
+  }, "L\xE4dt...") : list.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "liga-empty"
+  }, "Noch keine Accounts erstellt.") : /*#__PURE__*/React.createElement("div", null, list.map(acc => /*#__PURE__*/React.createElement("div", {
+    key: acc.id,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      padding: "10px 0",
+      borderBottom: "1px solid var(--border)",
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      fontSize: 15
+    }
+  }, acc.name), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: roleColors[acc.role] || "var(--dim)",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      letterSpacing: 1
+    }
+  }, roleLabels[acc.role] || acc.role)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6
+    }
+  }, ["viewer", "editor", "admin"].map(r => /*#__PURE__*/React.createElement("button", {
+    key: r,
+    className: `win-btn${acc.role === r ? " active" : ""}`,
+    style: {
+      fontSize: 11,
+      padding: "4px 8px",
+      minHeight: 32,
+      color: acc.role === r ? roleColors[r] : "var(--dim)"
+    },
+    onClick: () => onRoleChange(acc.id, r)
+  }, r)))))));
+}
 function BottomNav({
   tab,
   setTab,
@@ -2808,6 +3116,8 @@ function BettingTab({
   matches,
   archive,
   numLeagues,
+  currentUser,
+  canCreateBet,
   onUpdate
 }) {
   const [showNew, setShowNew] = useState(false);
@@ -2820,8 +3130,8 @@ function BettingTab({
     id: null,
     name: ""
   }]);
-  const [addBettorId, setAddBettorId] = useState(null); // bet id for adding bettor
-  const [bettorName, setBettorName] = useState("");
+  const [addBettorId, setAddBettorId] = useState(null);
+  const [bettorName, setBettorName] = useState(currentUser?.name || "");
   const [bettorSide, setBettorSide] = useState("A");
   const [bettorAmount, setBettorAmount] = useState("");
   const safeBets = bets || [];
@@ -2990,13 +3300,18 @@ function BettingTab({
       fontSize: 28,
       color: gartenNet >= 0 ? "var(--gold)" : "#ff8a8a"
     }
-  }, gartenNet >= 0 ? "+" : "", gartenNet.toFixed(2), "\u20AC")))), !showNew ? /*#__PURE__*/React.createElement("button", {
+  }, gartenNet >= 0 ? "+" : "", gartenNet.toFixed(2), "\u20AC")))), !showNew ? canCreateBet ? /*#__PURE__*/React.createElement("button", {
     className: "big-btn",
     style: {
       marginBottom: 18
     },
     onClick: () => setShowNew(true)
   }, "+ Neue Wette erstellen") : /*#__PURE__*/React.createElement("div", {
+    className: "info-box",
+    style: {
+      marginBottom: 18
+    }
+  }, "Nur Admins und Editoren k\xF6nnen Wetten erstellen. Du kannst auf bestehende Wetten setzen.") : /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       marginBottom: 18,
@@ -3454,7 +3769,7 @@ function BettingTab({
       },
       onClick: () => {
         setAddBettorId(bet.id);
-        setBettorName("");
+        setBettorName(currentUser?.name || "");
         setBettorAmount("");
         setBettorSide("A");
       }
@@ -4299,20 +4614,32 @@ function LigaApp({
   const [archiveExpanded, setArchiveExpanded] = useState(null);
   const [showSetup, setShowSetup] = useState(false);
 
-  // Auth: role per browser session ('viewer' / 'editor' / 'admin').
-  // Read from localStorage on mount for "stay logged in"
-  const [role, setRole] = useState(() => {
+  // Account-based auth
+  const [currentUser, setCurrentUser] = useState(() => loadCurrentUser());
+  const [showAccountModal, setShowAccountModal] = useState(false);
+
+  // Derive role from currentUser (or fallback to old glus_role for backward compat)
+  const role = currentUser?.role || (() => {
     try {
       return localStorage.getItem("glus_role") || "viewer";
     } catch {
       return "viewer";
     }
-  });
-  useEffect(() => {
+  })();
+  function handleLogin(user) {
+    setCurrentUser(user);
+    // Also set legacy glus_role for turnier compatibility
     try {
-      if (role === "viewer") localStorage.removeItem("glus_role");else localStorage.setItem("glus_role", role);
+      localStorage.setItem("glus_role", user.role);
     } catch {}
-  }, [role]);
+  }
+  function handleLogout() {
+    clearCurrentUser();
+    setCurrentUser(null);
+    try {
+      localStorage.removeItem("glus_role");
+    } catch {}
+  }
   const [showLogin, setShowLogin] = useState(false);
   const [loginPw, setLoginPw] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -4497,7 +4824,7 @@ function LigaApp({
   useEffect(() => {
     const allowed = ["standings", "compare", "achievements", "hof", "archive"];
     if (canEdit) allowed.push("matchentry");
-    if (isAdmin) allowed.push("players", "settings", "backups", "betting");
+    if (isAdmin) allowed.push("players", "settings", "backups", "betting");else if (currentUser) allowed.push("betting");
     if (!allowed.includes(tab)) setLigaTab("standings");
   }, [role, tab, canEdit, isAdmin]);
 
@@ -4937,7 +5264,7 @@ function LigaApp({
   }, {
     id: "archive",
     label: "📚 Archiv"
-  }, ...(isAdmin ? [{
+  }, ...(currentUser ? [{
     id: "betting",
     label: "💰 Wetten"
   }] : []), ...(isAdmin ? [{
@@ -4981,7 +5308,10 @@ function LigaApp({
       maxWidth: 160
     },
     onClick: () => confirmAction.onConfirm(confirmAction.input?.value)
-  }, "Best\xE4tigen")))), pendingDestructiveWrite && /*#__PURE__*/React.createElement("div", {
+  }, "Best\xE4tigen")))), showAccountModal && /*#__PURE__*/React.createElement(AccountModal, {
+    onClose: () => setShowAccountModal(false),
+    onLogin: handleLogin
+  }), pendingDestructiveWrite && /*#__PURE__*/React.createElement("div", {
     className: "confirm-modal",
     style: {
       zIndex: 300
@@ -5218,17 +5548,36 @@ function LigaApp({
     title: syncStatus === "live" ? "Live mit allen Geräten synchronisiert" : syncStatus === "offline" ? "Offline — Änderungen werden lokal gespeichert" : "Verbinde..."
   }, syncStatus === "live" ? "🟢 Sync" : syncStatus === "offline" ? "🔴 Offline" : "🟡 Verbinde"), role === "admin" && /*#__PURE__*/React.createElement("span", {
     className: "role-badge role-admin"
+  }, "\uD83D\uDC51 Admin"), role === "admin" && /*#__PURE__*/React.createElement("span", {
+    className: "role-badge role-admin"
   }, "\uD83D\uDC51 Admin"), role === "editor" && /*#__PURE__*/React.createElement("span", {
     className: "role-badge role-editor"
-  }, "\u270F\uFE0F Editor"), role === "viewer" && /*#__PURE__*/React.createElement("span", {
+  }, "\u270F\uFE0F Editor"), role === "viewer" && currentUser && /*#__PURE__*/React.createElement("span", {
     className: "role-badge role-viewer"
-  }, "\uD83D\uDC41\uFE0F Viewer"), role === "viewer" ? /*#__PURE__*/React.createElement("button", {
+  }, "\uD83D\uDC41\uFE0F Viewer"), currentUser ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "'Barlow Condensed',sans-serif",
+      fontSize: 12,
+      color: "var(--gold)",
+      fontWeight: 700,
+      maxWidth: 90,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, currentUser.name), /*#__PURE__*/React.createElement("button", {
     className: "login-btn",
-    onClick: () => setShowLogin(true)
-  }, "Anmelden") : /*#__PURE__*/React.createElement("button", {
+    onClick: handleLogout
+  }, "Abmelden")) : /*#__PURE__*/React.createElement("button", {
     className: "login-btn",
-    onClick: () => setRole("viewer")
-  }, "Abmelden")), /*#__PURE__*/React.createElement("div", {
+    onClick: () => setShowAccountModal(true)
+  }, "Anmelden")), /*#__PURE__*/React.createElement("div", {
     className: "mode-switch"
   }, /*#__PURE__*/React.createElement("button", {
     className: "mode-btn active"
@@ -6667,12 +7016,14 @@ function LigaApp({
         }
       })
     }, "Aus Archiv l\xF6schen")));
-  }))), tab === "betting" && isAdmin && /*#__PURE__*/React.createElement(BettingTab, {
+  }))), tab === "betting" && (isAdmin || currentUser) && /*#__PURE__*/React.createElement(BettingTab, {
     bets: state.bets || [],
     players: players,
     matches: matches,
     archive: archive,
     numLeagues: numLeagues,
+    currentUser: currentUser,
+    canCreateBet: canEdit,
     onUpdate: newBets => update({
       bets: newBets
     })
@@ -6691,7 +7042,21 @@ function LigaApp({
     }
   }), tab === "settings" && isAdmin && /*#__PURE__*/React.createElement("div", {
     className: "liga-settings-grid"
-  }, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(AccountManagement, {
+    currentUser: currentUser,
+    onRoleChange: (userId, newRole) => {
+      writeFirebase(`${ACCOUNTS_FB_PATH}/${userId}/role`, newRole);
+      // If that's the current user, update locally too
+      if (currentUser && currentUser.id === userId) {
+        const updated = {
+          ...currentUser,
+          role: newRole
+        };
+        saveCurrentUser(updated);
+        handleLogin(updated);
+      }
+    }
+  }), /*#__PURE__*/React.createElement("div", {
     className: "card"
   }, /*#__PURE__*/React.createElement("div", {
     className: "card-title"
