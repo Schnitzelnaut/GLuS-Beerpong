@@ -267,7 +267,9 @@ function makeDefaultLiga() {
       // [{year, winner: name, date}] for "Spandaus Bester"
       league: [] // [{seasonName, winner: name, date}] for "Staakens Bester"
     },
-    bets: [] // [{id, createdAt, status, teamSize, playersA, playersB, oddsA, oddsB, winner, bettors, gartenIn, gartenOut}]
+    bets: [],
+    // [{id, createdAt, status, teamSize, playersA, playersB, oddsA, oddsB, winner, bettors, gartenIn, gartenOut}]
+    maxBet: 50 // max bet amount in €
   };
 }
 
@@ -3330,6 +3332,8 @@ function BettingTab({
   numLeagues,
   currentUser,
   canCreateBet,
+  maxBet,
+  onSetMaxBet,
   onUpdate
 }) {
   const [showNew, setShowNew] = useState(false);
@@ -3449,6 +3453,10 @@ function BettingTab({
   }
   async function addBettor(betId) {
     if (!bettorName.trim() || !bettorAmount || parseFloat(bettorAmount) <= 0) return;
+    if (parseFloat(bettorAmount) > (maxBet || 50)) {
+      alert(`Maximum Einsatz ist ${maxBet || 50}€!`);
+      return;
+    }
     const bet = safeBets.find(b => b.id === betId);
     if (!bet) return;
     const amount = parseFloat(bettorAmount);
@@ -3606,8 +3614,60 @@ function BettingTab({
       borderColor: "#5a5020"
     }
   }, /*#__PURE__*/React.createElement("div", {
-    className: "card-title"
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: 14,
+      flexWrap: "wrap",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-title",
+    style: {
+      marginBottom: 0
+    }
   }, "\uD83D\uDCB0 Garten Kasse"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--dim)",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      letterSpacing: 1.5,
+      textTransform: "uppercase"
+    }
+  }, "Max. Einsatz:"), onSetMaxBet ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 4
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "step-btn",
+    onClick: () => onSetMaxBet(Math.max(1, (maxBet || 50) - 5))
+  }, "-"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "'Permanent Marker',cursive",
+      fontSize: 18,
+      color: "var(--gold)",
+      minWidth: 52,
+      textAlign: "center"
+    }
+  }, maxBet || 50, "\u20AC"), /*#__PURE__*/React.createElement("button", {
+    className: "step-btn",
+    onClick: () => onSetMaxBet((maxBet || 50) + 5)
+  }, "+")) : /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "'Permanent Marker',cursive",
+      fontSize: 18,
+      color: "var(--gold)"
+    }
+  }, maxBet || 50, "\u20AC"))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
       gridTemplateColumns: "1fr 1fr 1fr",
@@ -4108,7 +4168,8 @@ function BettingTab({
       type: "number",
       min: "0.50",
       step: "0.50",
-      placeholder: "Einsatz in \u20AC",
+      max: maxBet || 50,
+      placeholder: `Einsatz (max. ${maxBet || 50}€)`,
       value: bettorAmount,
       onChange: e => setBettorAmount(e.target.value),
       style: {
@@ -7409,7 +7470,11 @@ function LigaApp({
     canCreateBet: canEdit,
     onUpdate: newBets => update({
       bets: newBets
-    })
+    }),
+    maxBet: state.maxBet ?? 50,
+    onSetMaxBet: isAdmin ? val => update({
+      maxBet: val
+    }) : null
   }), tab === "backups" && isAdmin && /*#__PURE__*/React.createElement(BackupsTab, {
     currentState: state,
     onRestore: restored => {
