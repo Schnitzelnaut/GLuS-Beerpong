@@ -1695,6 +1695,8 @@ const css = `
 .liga-pts-cell { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 22px; color: var(--gold); }
 .liga-promote-row td { box-shadow: inset 3px 0 0 #6abf6a; }
 .liga-relegate-row td { box-shadow: inset 3px 0 0 #bf6a6a; }
+.liga-my-row { background: rgba(240,192,64,0.07); }
+.liga-my-row td { box-shadow: inset 3px 0 0 var(--gold); font-weight: 700; }
 .liga-rank-up { color: #6abf6a; font-size: 11px; margin-left: 4px; }
 .liga-rank-down { color: #bf6a6a; font-size: 11px; margin-left: 4px; }
 .liga-empty { padding: 30px 16px; text-align: center; color: var(--dim); font-style: italic; font-size: 13px; }
@@ -2767,7 +2769,8 @@ function AccountModal({
       const user = {
         id: match.id,
         name: match.name,
-        role: match.role
+        role: match.role,
+        linkedPlayerId: match.linkedPlayerId || null
       };
       saveCurrentUser(user);
       onLogin(user);
@@ -2804,7 +2807,8 @@ function AccountModal({
       const user = {
         id,
         name: account.name,
-        role: "viewer"
+        role: "viewer",
+        linkedPlayerId: null
       };
       saveCurrentUser(user);
       onLogin(user);
@@ -2927,7 +2931,8 @@ function AccountModal({
 }
 function AccountManagement({
   currentUser,
-  onRoleChange
+  onRoleChange,
+  players
 }) {
   const [accounts, setAccounts] = useState({});
   const [loading, setLoading] = useState(true);
@@ -2957,6 +2962,21 @@ function AccountManagement({
     editor: "✏️ Editor",
     viewer: "👁️ Viewer"
   };
+  async function linkPlayer(acc, playerId) {
+    const updated = {
+      ...acc,
+      linkedPlayerId: playerId || null
+    };
+    await writeAccount(updated);
+    setAccounts(prev => ({
+      ...prev,
+      [acc.id]: updated
+    }));
+    if (currentUser?.id === acc.id) saveCurrentUser({
+      ...currentUser,
+      linkedPlayerId: playerId || null
+    });
+  }
   async function handleAdjust(acc) {
     const amount = parseFloat(adjustAmount);
     if (!amount || amount <= 0) return;
@@ -3062,6 +3082,42 @@ function AccountManagement({
     },
     onClick: () => onRoleChange(acc.id, r)
   }, r)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      marginTop: 8,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--dim)",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      letterSpacing: 1.5,
+      textTransform: "uppercase",
+      whiteSpace: "nowrap"
+    }
+  }, "\u26BD Liga-Spieler:"), /*#__PURE__*/React.createElement("select", {
+    className: "player-league-select",
+    style: {
+      flex: 1,
+      fontSize: 13
+    },
+    value: acc.linkedPlayerId || "",
+    onChange: e => linkPlayer(acc, e.target.value || null)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u2014 Kein Spieler verkn\xFCpft \u2014"), (players || []).map(p => /*#__PURE__*/React.createElement("option", {
+    key: p.id,
+    value: p.id
+  }, p.name))), acc.linkedPlayerId && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: "#8bc34a",
+      fontFamily: "'Barlow Condensed',sans-serif"
+    }
+  }, "\u2713 verkn\xFCpft")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 8,
@@ -6004,7 +6060,20 @@ function LigaApp({
       gap: 6,
       alignItems: "center"
     }
-  }, /*#__PURE__*/React.createElement("span", {
+  }, currentUser.linkedPlayerId && players.find(p => p.id === currentUser.linkedPlayerId) && /*#__PURE__*/React.createElement("button", {
+    style: {
+      background: "none",
+      border: "1px solid var(--gold)",
+      borderRadius: 4,
+      padding: "2px 8px",
+      cursor: "pointer",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      fontSize: 11,
+      color: "var(--gold)",
+      letterSpacing: 1
+    },
+    onClick: () => setViewProfileId(currentUser.linkedPlayerId)
+  }, "\uD83D\uDC64 Profil"), /*#__PURE__*/React.createElement("span", {
     style: {
       fontFamily: "'Barlow Condensed',sans-serif",
       fontSize: 12,
@@ -6053,7 +6122,136 @@ function LigaApp({
     onResetAllAchievements: resetAllAchievementsForPlayer,
     isAdmin: isAdmin,
     ligaName: ligaName
-  }) : /*#__PURE__*/React.createElement(React.Fragment, null, tab === "standings" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+  }) : /*#__PURE__*/React.createElement(React.Fragment, null, tab === "standings" && /*#__PURE__*/React.createElement(React.Fragment, null, currentUser?.linkedPlayerId && (() => {
+    const myPlayer = players.find(p => p.id === currentUser.linkedPlayerId);
+    if (!myPlayer) return null;
+    const myLeagueIdx = typeof myPlayer.league === "number" ? myPlayer.league : null;
+    const standings = myLeagueIdx !== null ? calcLeagueStandings(players, matches, myLeagueIdx) : [];
+    const myRank = standings.findIndex(s => s.id === myPlayer.id) + 1;
+    const form = getRecentForm(myPlayer.id, matches, 5);
+    const streak = getCurrentStreak(myPlayer.id, matches);
+    const lifetimeStats = calcLifetimeStatsLastN(myPlayer.id, matches, archive, 50);
+    const {
+      earned
+    } = calcAchievements(myPlayer.id, players, matches, archive, []);
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        background: "linear-gradient(135deg,rgba(240,192,64,0.12),rgba(10,28,10,0.8))",
+        border: "1px solid var(--gold)",
+        borderRadius: 8,
+        padding: "14px 16px",
+        marginBottom: 16,
+        cursor: "pointer"
+      },
+      onClick: () => setViewProfileId(myPlayer.id)
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        flexWrap: "wrap"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 28
+      }
+    }, myPlayer.avatar || "🍺"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "'Permanent Marker',cursive",
+        fontSize: 18,
+        color: "var(--gold)"
+      }
+    }, myPlayer.name), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "var(--dim)"
+      }
+    }, myLeagueIdx !== null ? ligaName(myLeagueIdx) : "Reservebank", myRank > 0 ? ` · Platz #${myRank}` : "")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 16,
+        flexWrap: "wrap",
+        alignItems: "center"
+      }
+    }, lifetimeStats.games > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: "center"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "var(--dim)",
+        fontFamily: "'Barlow Condensed',sans-serif",
+        letterSpacing: 1.5,
+        textTransform: "uppercase"
+      }
+    }, "Siege %"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "'Permanent Marker',cursive",
+        fontSize: 20,
+        color: "#8bc34a"
+      }
+    }, Math.round(lifetimeStats.wins / lifetimeStats.games * 100), "%")), streak.count > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: "center"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "var(--dim)",
+        fontFamily: "'Barlow Condensed',sans-serif",
+        letterSpacing: 1.5,
+        textTransform: "uppercase"
+      }
+    }, "Streak"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "'Permanent Marker',cursive",
+        fontSize: 20,
+        color: streak.type === "W" ? "#8bc34a" : "#ff8a8a"
+      }
+    }, streak.count, streak.type === "W" ? "W" : "L")), earned.size > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: "center"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "var(--dim)",
+        fontFamily: "'Barlow Condensed',sans-serif",
+        letterSpacing: 1.5,
+        textTransform: "uppercase"
+      }
+    }, "Awards"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "'Permanent Marker',cursive",
+        fontSize: 20,
+        color: "var(--gold)"
+      }
+    }, earned.size, "\uD83C\uDFC5")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 3
+      }
+    }, form.map((r, i) => /*#__PURE__*/React.createElement("span", {
+      key: i,
+      style: {
+        width: 14,
+        height: 14,
+        borderRadius: "50%",
+        background: r === "W" ? "#8bc34a" : "#ff8a8a",
+        display: "inline-block"
+      }
+    })))), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "var(--dim)"
+      }
+    }, "\u2192 Profil")));
+  })(), /*#__PURE__*/React.createElement("div", {
     className: "liga-header-controls"
   }, /*#__PURE__*/React.createElement("div", {
     className: "liga-season-name"
@@ -6106,7 +6304,7 @@ function LigaApp({
       const relegated = lg < numLeagues - 1 && rank >= standings.length - cfg.relegate && cfg.relegate > 0;
       return /*#__PURE__*/React.createElement("tr", {
         key: s.id,
-        className: promoted ? "liga-promote-row" : relegated ? "liga-relegate-row" : ""
+        className: s.id === currentUser?.linkedPlayerId ? "liga-my-row" : promoted ? "liga-promote-row" : relegated ? "liga-relegate-row" : ""
       }, /*#__PURE__*/React.createElement("td", {
         className: "liga-rank-cell"
       }, rank + 1, promoted && /*#__PURE__*/React.createElement("span", {
@@ -6529,7 +6727,11 @@ function LigaApp({
         className: "match-hist-row",
         key: m.id,
         style: {
-          gridTemplateColumns: "1fr auto 1fr auto auto"
+          gridTemplateColumns: "1fr auto 1fr auto auto",
+          ...(currentUser?.linkedPlayerId && (m.playerA === currentUser.linkedPlayerId || m.playerB === currentUser.linkedPlayerId) ? {
+            background: "rgba(240,192,64,0.06)",
+            borderLeft: "2px solid var(--gold)"
+          } : {})
         }
       }, /*#__PURE__*/React.createElement("div", {
         className: `match-hist-team${m.winner === "A" ? " winner" : ""}`
@@ -6555,7 +6757,11 @@ function LigaApp({
       className: "match-hist-row",
       key: m.id,
       style: {
-        gridTemplateColumns: "1fr auto 1fr auto auto"
+        gridTemplateColumns: "1fr auto 1fr auto auto",
+        ...(currentUser?.linkedPlayerId && (m.playerA === currentUser.linkedPlayerId || m.playerB === currentUser.linkedPlayerId) ? {
+          background: "rgba(240,192,64,0.06)",
+          borderLeft: "2px solid var(--gold)"
+        } : {})
       }
     }, /*#__PURE__*/React.createElement("div", {
       className: `match-hist-team${m.winner === "A" ? " winner" : ""}`
@@ -6755,8 +6961,20 @@ function LigaApp({
       size: ""
     }), /*#__PURE__*/React.createElement("div", {
       className: "player-name player-link",
-      onClick: () => setViewProfileId(p.id)
-    }, p.name), /*#__PURE__*/React.createElement("select", {
+      onClick: () => setViewProfileId(p.id),
+      style: p.id === currentUser?.linkedPlayerId ? {
+        color: "var(--gold)",
+        fontWeight: 700
+      } : {}
+    }, p.name, p.id === currentUser?.linkedPlayerId && /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 10,
+        marginLeft: 6,
+        color: "var(--gold)",
+        fontFamily: "'Barlow Condensed',sans-serif",
+        letterSpacing: 1
+      }
+    }, "\u2190 DU")), /*#__PURE__*/React.createElement("select", {
       className: "player-league-select",
       value: "",
       onChange: e => {
@@ -7492,6 +7710,7 @@ function LigaApp({
     className: "liga-settings-grid"
   }, /*#__PURE__*/React.createElement(AccountManagement, {
     currentUser: currentUser,
+    players: players,
     onRoleChange: (userId, newRole) => {
       writeFirebase(`${ACCOUNTS_FB_PATH}/${userId}/role`, newRole);
       // If that's the current user, update locally too
