@@ -3144,6 +3144,16 @@ function AccountManagement({
     editor: "✏️ Editor",
     viewer: "👁️ Viewer"
   };
+  async function deleteAccount(acc) {
+    await writeFirebase(`${ACCOUNTS_FB_PATH}/${acc.id}`, null);
+    setAccounts(prev => {
+      const n = {
+        ...prev
+      };
+      delete n[acc.id];
+      return n;
+    });
+  }
   async function linkPlayer(acc, playerId) {
     const updated = {
       ...acc,
@@ -3341,7 +3351,15 @@ function AccountManagement({
       padding: "6px 12px"
     },
     onClick: () => setShowHistory(showHistory === acc.id ? null : acc.id)
-  }, "\uD83D\uDCCB Verlauf (", (acc.transactions || []).length, ")")), adjustId === acc.id && /*#__PURE__*/React.createElement("div", {
+  }, "\uD83D\uDCCB Verlauf (", (acc.transactions || []).length, ")"), /*#__PURE__*/React.createElement("button", {
+    className: "match-hist-del",
+    style: {
+      marginLeft: "auto"
+    },
+    onClick: () => {
+      if (window.confirm(`Account "${acc.name}" wirklich löschen?`)) deleteAccount(acc);
+    }
+  }, "\u2715")), adjustId === acc.id && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 10,
       padding: 12,
