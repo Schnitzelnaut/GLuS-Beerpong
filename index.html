@@ -1003,6 +1003,188 @@ function checkSingleAchievement(achId, playerId, filteredMatches) {
 }
 
 // Form string — last 5 games as outcomes ("WLWLW" or array of W/L)
+// Rolling win% über letzte N Spiele (für Formkurve)
+function calcRollingForm(playerId, matches, window = 5) {
+  const playerMatches = matches.filter(m => m.winner && !m.isFunGame && (m.playerA === playerId || m.playerB === playerId)).sort((a, b) => (a.date || 0) - (b.date || 0));
+  if (playerMatches.length < 2) return [];
+  const points = [];
+  for (let i = window - 1; i < playerMatches.length; i++) {
+    const slice = playerMatches.slice(Math.max(0, i - window + 1), i + 1);
+    const wins = slice.filter(m => m.playerA === playerId && m.winner === "A" || m.playerB === playerId && m.winner === "B").length;
+    points.push(Math.round(wins / slice.length * 100));
+  }
+  return points;
+}
+
+// Großer Formkurven-Chart für Direktvergleich
+function FormChart({
+  playerA,
+  playerB,
+  matches,
+  nameA,
+  nameB
+}) {
+  const window = 5;
+  const ptsA = calcRollingForm(playerA, matches, window);
+  const ptsB = calcRollingForm(playerB, matches, window);
+  const maxLen = Math.max(ptsA.length, ptsB.length);
+  if (maxLen < 2) return null;
+  const W = 280,
+    H = 100,
+    PAD = 8;
+  function toSvg(points, total) {
+    return points.map((v, i) => {
+      const x = PAD + (i + (total - points.length)) / (total - 1) * (W - PAD * 2);
+      const y = PAD + (100 - v) / 100 * (H - PAD * 2);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(" ");
+  }
+  const svgA = toSvg(ptsA, maxLen);
+  const svgB = toSvg(ptsB, maxLen);
+  const lastA = ptsA[ptsA.length - 1] ?? 50;
+  const lastB = ptsB[ptsB.length - 1] ?? 50;
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "12px 14px",
+      background: "rgba(10,28,10,0.5)",
+      borderRadius: 6,
+      border: "1px solid var(--border)",
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: "var(--dim)",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      letterSpacing: 1.5,
+      textTransform: "uppercase",
+      marginBottom: 8
+    }
+  }, "\uD83D\uDCC8 Formkurve (rollend, letzte ", window, " Spiele)"), /*#__PURE__*/React.createElement("svg", {
+    width: "100%",
+    viewBox: `0 0 ${W} ${H}`,
+    style: {
+      overflow: "visible"
+    }
+  }, [0, 50, 100].map(v => {
+    const y = PAD + (100 - v) / 100 * (H - PAD * 2);
+    return /*#__PURE__*/React.createElement("line", {
+      key: v,
+      x1: PAD,
+      x2: W - PAD,
+      y1: y,
+      y2: y,
+      stroke: "rgba(255,255,255,0.06)",
+      strokeWidth: "1"
+    });
+  }), /*#__PURE__*/React.createElement("text", {
+    x: PAD - 2,
+    y: PAD + 4,
+    fontSize: "7",
+    fill: "rgba(255,255,255,0.25)",
+    textAnchor: "end"
+  }, "100%"), /*#__PURE__*/React.createElement("text", {
+    x: PAD - 2,
+    y: PAD + (H - PAD * 2) / 2 + 3,
+    fontSize: "7",
+    fill: "rgba(255,255,255,0.25)",
+    textAnchor: "end"
+  }, "50%"), /*#__PURE__*/React.createElement("text", {
+    x: PAD - 2,
+    y: H - PAD + 2,
+    fontSize: "7",
+    fill: "rgba(255,255,255,0.25)",
+    textAnchor: "end"
+  }, "0%"), /*#__PURE__*/React.createElement("line", {
+    x1: PAD,
+    x2: W - PAD,
+    y1: PAD + (H - PAD * 2) / 2,
+    y2: PAD + (H - PAD * 2) / 2,
+    stroke: "rgba(255,255,255,0.12)",
+    strokeDasharray: "3,3",
+    strokeWidth: "1"
+  }), ptsA.length >= 2 && /*#__PURE__*/React.createElement("polyline", {
+    points: svgA,
+    fill: "none",
+    stroke: "#8bc34a",
+    strokeWidth: "2",
+    strokeLinejoin: "round",
+    strokeLinecap: "round"
+  }), ptsB.length >= 2 && /*#__PURE__*/React.createElement("polyline", {
+    points: svgB,
+    fill: "none",
+    stroke: "#f0c040",
+    strokeWidth: "2",
+    strokeLinejoin: "round",
+    strokeLinecap: "round"
+  }), ptsA.length >= 1 && (() => {
+    const [x, y] = svgA.split(" ").pop().split(",");
+    return /*#__PURE__*/React.createElement("circle", {
+      cx: x,
+      cy: y,
+      r: "3",
+      fill: "#8bc34a"
+    });
+  })(), ptsB.length >= 1 && (() => {
+    const [x, y] = svgB.split(" ").pop().split(",");
+    return /*#__PURE__*/React.createElement("circle", {
+      cx: x,
+      cy: y,
+      r: "3",
+      fill: "#f0c040"
+    });
+  })()), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      marginTop: 6
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: 11
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 12,
+      height: 3,
+      background: "#8bc34a",
+      borderRadius: 2
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#8bc34a"
+    }
+  }, nameA), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "var(--dim)"
+    }
+  }, lastA, "%")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: 11
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "var(--dim)"
+    }
+  }, lastB, "%"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "#f0c040"
+    }
+  }, nameB), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 12,
+      height: 3,
+      background: "#f0c040",
+      borderRadius: 2
+    }
+  }))));
+}
 function getRecentForm(playerId, matches, count = 5) {
   const playerMatches = matches.filter(m => m.winner && !m.isFunGame && (m.playerA === playerId || m.playerB === playerId)).sort((a, b) => (b.date || 0) - (a.date || 0)).slice(0, count);
   return playerMatches.map(m => {
@@ -5014,7 +5196,106 @@ function ProfileView({
     className: "profile-stat-mini-label"
   }, "Diff"), /*#__PURE__*/React.createElement("div", {
     className: "profile-stat-mini-value " + (lifetimeStats.diff > 0 ? "diff-pos" : lifetimeStats.diff < 0 ? "diff-neg" : "")
-  }, lifetimeStats.diff > 0 ? "+" : "", lifetimeStats.diff))))), isOwnProfile && typeof player.league === "number" && (() => {
+  }, lifetimeStats.diff > 0 ? "+" : "", lifetimeStats.diff))))), (() => {
+    const ligaMatches = [...matches, ...(archive || []).flatMap(a => a.matches || [])].filter(m => m.winner && !m.isFunGame);
+    const opponents = players.filter(p => p.id !== player.id);
+    const h2hData = opponents.map(opp => {
+      const ms = ligaMatches.filter(m => m.playerA === player.id && m.playerB === opp.id || m.playerB === player.id && m.playerA === opp.id);
+      if (ms.length < 2) return null;
+      const myWins = ms.filter(m => m.playerA === player.id && m.winner === "A" || m.playerB === player.id && m.winner === "B").length;
+      const oppWins = ms.length - myWins;
+      return {
+        opp,
+        played: ms.length,
+        myWins,
+        oppWins,
+        diff: myWins - oppWins
+      };
+    }).filter(Boolean);
+    if (h2hData.length < 1) return null;
+    const nemesis = [...h2hData].sort((a, b) => b.oppWins - a.oppWins || b.played - a.played)[0];
+    const liebling = [...h2hData].sort((a, b) => b.myWins - a.myWins || b.played - a.played)[0];
+    const rivale = [...h2hData].sort((a, b) => Math.abs(a.diff) - Math.abs(b.diff) || b.played - a.played)[0];
+    const cards = [{
+      emoji: "🎯",
+      label: "Lieblingsopfer",
+      player: liebling?.opp,
+      stat: `${liebling?.myWins}:${liebling?.oppWins}`,
+      sub: `in ${liebling?.played} Spielen`
+    }, {
+      emoji: "😈",
+      label: "Nemesis",
+      player: nemesis?.opp,
+      stat: `${nemesis?.oppWins}:${nemesis?.myWins}`,
+      sub: `in ${nemesis?.played} Spielen`
+    }, {
+      emoji: "⚔️",
+      label: "Größter Rivale",
+      player: rivale?.opp,
+      stat: `${rivale?.myWins}:${rivale?.oppWins}`,
+      sub: `in ${rivale?.played} Spielen`
+    }];
+    return /*#__PURE__*/React.createElement("div", {
+      className: "card",
+      style: {
+        marginBottom: 12
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "card-title"
+    }, "\u2694\uFE0F Rivalit\xE4tskarte"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(3,1fr)",
+        gap: 10
+      }
+    }, cards.map(c => c.player && /*#__PURE__*/React.createElement("div", {
+      key: c.label,
+      style: {
+        textAlign: "center",
+        padding: "12px 8px",
+        background: "rgba(10,28,10,0.5)",
+        borderRadius: 6,
+        border: "1px solid var(--border)"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 20,
+        marginBottom: 4
+      }
+    }, c.emoji), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "var(--dim)",
+        fontFamily: "'Barlow Condensed',sans-serif",
+        letterSpacing: 1.5,
+        textTransform: "uppercase",
+        marginBottom: 6
+      }
+    }, c.label), /*#__PURE__*/React.createElement(Avatar, {
+      player: c.player,
+      size: "sm"
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: 700,
+        fontSize: 13,
+        marginTop: 5,
+        lineHeight: 1.2
+      }
+    }, c.player.name), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "'Permanent Marker',cursive",
+        fontSize: 16,
+        color: "var(--gold)",
+        marginTop: 4
+      }
+    }, c.stat), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "var(--dim)",
+        marginTop: 2
+      }
+    }, c.sub)))));
+  })(), isOwnProfile && typeof player.league === "number" && (() => {
     const leaguePlayers = players.filter(p => p.league === player.league && p.id !== player.id);
     const openOpponents = leaguePlayers.filter(opp => {
       const cfg = leagueConfig?.[player.league] || {
@@ -5148,7 +5429,108 @@ function ProfileView({
     }, myCups, " : ", oppCups), /*#__PURE__*/React.createElement("div", {
       className: "match-hist-team right" + (lost ? " winner" : "")
     }, opp.name));
-  }))));
+  }))), (() => {
+    const seasons = [...(archive || []).map(a => ({
+      name: a.seasonName || "Archiv",
+      matches: (a.matches || []).filter(m => !m.isFunGame),
+      league: null // we'll detect from matches
+    })), {
+      name: "Aktuelle Saison",
+      matches: (matches || []).filter(m => !m.isFunGame),
+      league: player.league
+    }].filter(s => {
+      const pm = s.matches.filter(m => m.playerA === player.id || m.playerB === player.id);
+      return pm.length > 0;
+    });
+    if (seasons.length < 2) return null;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "card"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "card-title"
+    }, "\uD83D\uDCC5 Saisonvergleich"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        overflowX: "auto"
+      }
+    }, /*#__PURE__*/React.createElement("table", {
+      style: {
+        width: "100%",
+        borderCollapse: "collapse",
+        fontSize: 13
+      }
+    }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+      style: {
+        borderBottom: "1px solid var(--border)"
+      }
+    }, ["Saison", "SP", "S", "N", "S%", "🍺/Sp", "Diff"].map(h => /*#__PURE__*/React.createElement("th", {
+      key: h,
+      style: {
+        padding: "6px 8px",
+        textAlign: h === "Saison" ? "left" : "center",
+        fontFamily: "'Barlow Condensed',sans-serif",
+        fontSize: 11,
+        letterSpacing: 1.5,
+        textTransform: "uppercase",
+        color: "var(--dim)",
+        fontWeight: 700
+      }
+    }, h)))), /*#__PURE__*/React.createElement("tbody", null, seasons.map((s, idx) => {
+      const pm = s.matches.filter(m => m.playerA === player.id || m.playerB === player.id);
+      const wins = pm.filter(m => m.playerA === player.id && m.winner === "A" || m.playerB === player.id && m.winner === "B").length;
+      const losses = pm.length - wins;
+      const cupsFor = pm.reduce((acc, m) => acc + (m.playerA === player.id ? m.cupsA : m.cupsB), 0);
+      const cupsAgainst = pm.reduce((acc, m) => acc + (m.playerA === player.id ? m.cupsB : m.cupsA), 0);
+      const diff = cupsFor - cupsAgainst;
+      const isCurrent = idx === seasons.length - 1;
+      return /*#__PURE__*/React.createElement("tr", {
+        key: s.name,
+        style: {
+          borderBottom: "1px solid rgba(255,255,255,0.04)",
+          background: isCurrent ? "rgba(240,192,64,0.05)" : ""
+        }
+      }, /*#__PURE__*/React.createElement("td", {
+        style: {
+          padding: "8px 8px",
+          fontWeight: isCurrent ? 700 : 400,
+          color: isCurrent ? "var(--gold)" : "var(--text)"
+        }
+      }, isCurrent ? "⭐ " : "", s.name), /*#__PURE__*/React.createElement("td", {
+        style: {
+          textAlign: "center",
+          padding: "8px 6px"
+        }
+      }, pm.length), /*#__PURE__*/React.createElement("td", {
+        style: {
+          textAlign: "center",
+          padding: "8px 6px",
+          color: "#8bc34a",
+          fontWeight: 700
+        }
+      }, wins), /*#__PURE__*/React.createElement("td", {
+        style: {
+          textAlign: "center",
+          padding: "8px 6px",
+          color: "#ff8a8a"
+        }
+      }, losses), /*#__PURE__*/React.createElement("td", {
+        style: {
+          textAlign: "center",
+          padding: "8px 6px"
+        }
+      }, pm.length > 0 ? Math.round(wins / pm.length * 100) + "%" : "—"), /*#__PURE__*/React.createElement("td", {
+        style: {
+          textAlign: "center",
+          padding: "8px 6px"
+        }
+      }, pm.length > 0 ? (cupsFor / pm.length).toFixed(1) : "—"), /*#__PURE__*/React.createElement("td", {
+        style: {
+          textAlign: "center",
+          padding: "8px 6px",
+          color: diff > 0 ? "#8bc34a" : diff < 0 ? "#ff8a8a" : "var(--dim)",
+          fontWeight: 700
+        }
+      }, diff > 0 ? "+" : "", diff));
+    })))));
+  })());
 }
 function LigaApp({
   onSwitchToTurnier
@@ -7673,7 +8055,13 @@ function LigaApp({
       className: "h2h-stat-label"
     }, "H2H \uD83C\uDF7A"), /*#__PURE__*/React.createElement("div", {
       className: "h2h-stat-value gold"
-    }, h2h.cupsB))))), h2h.matches.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    }, h2h.cupsB))))), /*#__PURE__*/React.createElement(FormChart, {
+      playerA: pa.id,
+      playerB: pb.id,
+      matches: [...matches, ...(archive || []).flatMap(a => a.matches || [])],
+      nameA: pa.name,
+      nameB: pb.name
+    }), h2h.matches.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       className: "h2h-history-title"
     }, "\u2694\uFE0F Bisherige Duelle"), /*#__PURE__*/React.createElement("div", {
       className: "match-history"
