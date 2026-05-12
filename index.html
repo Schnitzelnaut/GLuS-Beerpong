@@ -4766,7 +4766,9 @@ function ProfileView({
   onResetAchievement,
   onResetAllAchievements,
   isAdmin,
-  ligaName
+  ligaName,
+  leagueConfig,
+  isOwnProfile
 }) {
   if (!player) return null;
 
@@ -5056,7 +5058,65 @@ function ProfileView({
     onGrant: onGrantAchievement,
     onRevoke: onRevokeAchievement,
     onReset: onResetAchievement
-  })), /*#__PURE__*/React.createElement("div", {
+  })), isOwnProfile && typeof player.league === "number" && (() => {
+    const leaguePlayers = players.filter(p => p.league === player.league && p.id !== player.id);
+    const openOpponents = leaguePlayers.filter(opp => {
+      const cfg = leagueConfig?.[player.league] || {
+        gamesPerPair: 1
+      };
+      const gpp = cfg.gamesPerPair || 1;
+      const played = matches.filter(m => m.winner && !m.isFunGame && (m.playerA === player.id && m.playerB === opp.id || m.playerB === player.id && m.playerA === opp.id)).length;
+      return played < gpp;
+    });
+    if (openOpponents.length === 0) return null;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "card",
+      style: {
+        borderColor: "rgba(240,192,64,0.3)"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "card-title"
+    }, "\u2694\uFE0F Noch offene Spiele (", openOpponents.length, ")"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 8
+      }
+    }, openOpponents.map(opp => {
+      const oppMatches = matches.filter(m => m.winner && !m.isFunGame && (m.playerA === player.id && m.playerB === opp.id || m.playerB === player.id && m.playerA === opp.id));
+      const myWins = oppMatches.filter(m => m.playerA === player.id && m.winner === "A" || m.playerB === player.id && m.winner === "B").length;
+      const cfg = leagueConfig?.[player.league] || {
+        gamesPerPair: 1
+      };
+      const gpp = cfg.gamesPerPair || 1;
+      const remaining = gpp - oppMatches.length;
+      return /*#__PURE__*/React.createElement("div", {
+        key: opp.id,
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "8px 12px",
+          background: "rgba(240,192,64,0.06)",
+          border: "1px solid rgba(240,192,64,0.2)",
+          borderRadius: 6
+        }
+      }, /*#__PURE__*/React.createElement(Avatar, {
+        player: opp,
+        size: "sm"
+      }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontWeight: 700,
+          fontSize: 14
+        }
+      }, opp.name), /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 11,
+          color: "var(--dim)"
+        }
+      }, oppMatches.length > 0 ? `${myWins}:${oppMatches.length - myWins} · ` : "", remaining, "\xD7 ausstehend")));
+    })));
+  })(), /*#__PURE__*/React.createElement("div", {
     className: "card"
   }, /*#__PURE__*/React.createElement("div", {
     className: "card-title"
@@ -6121,7 +6181,9 @@ function LigaApp({
     onResetAchievement: resetAchievementOverride,
     onResetAllAchievements: resetAllAchievementsForPlayer,
     isAdmin: isAdmin,
-    ligaName: ligaName
+    ligaName: ligaName,
+    leagueConfig: leagueConfig,
+    isOwnProfile: viewProfileId === currentUser?.linkedPlayerId
   }) : /*#__PURE__*/React.createElement(React.Fragment, null, tab === "standings" && /*#__PURE__*/React.createElement(React.Fragment, null, currentUser?.linkedPlayerId && (() => {
     const myPlayer = players.find(p => p.id === currentUser.linkedPlayerId);
     if (!myPlayer) return null;
@@ -6153,9 +6215,32 @@ function LigaApp({
       }
     }, /*#__PURE__*/React.createElement("div", {
       style: {
-        fontSize: 28
+        width: 44,
+        height: 44,
+        borderRadius: "50%",
+        overflow: "hidden",
+        border: "2px solid var(--gold)",
+        flexShrink: 0
       }
-    }, myPlayer.avatar || "🍺"), /*#__PURE__*/React.createElement("div", {
+    }, myPlayer.avatar && myPlayer.avatar.startsWith("data:") ? /*#__PURE__*/React.createElement("img", {
+      src: myPlayer.avatar,
+      style: {
+        width: "100%",
+        height: "100%",
+        objectFit: "cover"
+      },
+      alt: ""
+    }) : /*#__PURE__*/React.createElement("div", {
+      style: {
+        width: "100%",
+        height: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: 24,
+        background: "rgba(240,192,64,0.1)"
+      }
+    }, myPlayer.avatar || "🍺")), /*#__PURE__*/React.createElement("div", {
       style: {
         flex: 1
       }
@@ -7263,7 +7348,11 @@ function LigaApp({
     const score = calcSkillScore(lifetimeStats);
     const odds = calcOdds(score);
     return /*#__PURE__*/React.createElement("tr", {
-      key: s.id
+      key: s.id,
+      style: s.id === currentUser?.linkedPlayerId ? {
+        background: "rgba(240,192,64,0.07)",
+        outline: "1px solid rgba(240,192,64,0.3)"
+      } : {}
     }, /*#__PURE__*/React.createElement("td", {
       className: "compare-rank"
     }, rank + 1), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
