@@ -5014,51 +5014,7 @@ function ProfileView({
     className: "profile-stat-mini-label"
   }, "Diff"), /*#__PURE__*/React.createElement("div", {
     className: "profile-stat-mini-value " + (lifetimeStats.diff > 0 ? "diff-pos" : lifetimeStats.diff < 0 ? "diff-neg" : "")
-  }, lifetimeStats.diff > 0 ? "+" : "", lifetimeStats.diff))))), /*#__PURE__*/React.createElement("div", {
-    className: "card",
-    style: {
-      marginBottom: 18
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      flexWrap: "wrap",
-      gap: 10,
-      marginBottom: 14
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "card-title",
-    style: {
-      marginBottom: 0
-    }
-  }, "\uD83C\uDFC5 Achievements"), isAdmin && /*#__PURE__*/React.createElement("button", {
-    className: "danger-btn",
-    style: {
-      padding: "6px 12px",
-      fontSize: 11,
-      letterSpacing: 1
-    },
-    onClick: () => {
-      if (confirm(`Alle Achievements von ${player.name} zurücksetzen? Alle manuellen Vergaben und Entfernungen werden gelöscht — die App rechnet alles frisch aus den Spieldaten.`)) {
-        onResetAllAchievements(player.id);
-      }
-    }
-  }, "\uD83D\uDD04 Alle zur\xFCcksetzen")), isAdmin && /*#__PURE__*/React.createElement("div", {
-    className: "info-box",
-    style: {
-      marginBottom: 12
-    }
-  }, /*#__PURE__*/React.createElement("strong", null, "Klick auf eine Karte"), " um Achievements manuell zu vergeben oder zu entfernen.", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("strong", null, "\u201EAlle zur\xFCcksetzen\""), " l\xF6scht alle manuellen Overrides \u2014 die App berechnet alles automatisch neu aus den Spielergebnissen. N\xFCtzlich wenn durch falsche Timestamps falsche Achievements vergeben wurden."), /*#__PURE__*/React.createElement(AchievementsGrid, {
-    earned: earned,
-    details: achDetails,
-    player: player,
-    isAdmin: isAdmin,
-    onGrant: onGrantAchievement,
-    onRevoke: onRevokeAchievement,
-    onReset: onResetAchievement
-  })), isOwnProfile && typeof player.league === "number" && (() => {
+  }, lifetimeStats.diff > 0 ? "+" : "", lifetimeStats.diff))))), isOwnProfile && typeof player.league === "number" && (() => {
     const leaguePlayers = players.filter(p => p.league === player.league && p.id !== player.id);
     const openOpponents = leaguePlayers.filter(opp => {
       const cfg = leagueConfig?.[player.league] || {
@@ -5117,6 +5073,50 @@ function ProfileView({
       }, oppMatches.length > 0 ? `${myWins}:${oppMatches.length - myWins} · ` : "", remaining, "\xD7 ausstehend")));
     })));
   })(), /*#__PURE__*/React.createElement("div", {
+    className: "card",
+    style: {
+      marginBottom: 18
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      flexWrap: "wrap",
+      gap: 10,
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-title",
+    style: {
+      marginBottom: 0
+    }
+  }, "\uD83C\uDFC5 Achievements"), isAdmin && /*#__PURE__*/React.createElement("button", {
+    className: "danger-btn",
+    style: {
+      padding: "6px 12px",
+      fontSize: 11,
+      letterSpacing: 1
+    },
+    onClick: () => {
+      if (confirm(`Alle Achievements von ${player.name} zurücksetzen? Alle manuellen Vergaben und Entfernungen werden gelöscht — die App rechnet alles frisch aus den Spieldaten.`)) {
+        onResetAllAchievements(player.id);
+      }
+    }
+  }, "\uD83D\uDD04 Alle zur\xFCcksetzen")), isAdmin && /*#__PURE__*/React.createElement("div", {
+    className: "info-box",
+    style: {
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("strong", null, "Klick auf eine Karte"), " um Achievements manuell zu vergeben oder zu entfernen.", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("strong", null, "\u201EAlle zur\xFCcksetzen\""), " l\xF6scht alle manuellen Overrides \u2014 die App berechnet alles automatisch neu aus den Spielergebnissen. N\xFCtzlich wenn durch falsche Timestamps falsche Achievements vergeben wurden."), /*#__PURE__*/React.createElement(AchievementsGrid, {
+    earned: earned,
+    details: achDetails,
+    player: player,
+    isAdmin: isAdmin,
+    onGrant: onGrantAchievement,
+    onRevoke: onRevokeAchievement,
+    onReset: onResetAchievement
+  })), /*#__PURE__*/React.createElement("div", {
     className: "card"
   }, /*#__PURE__*/React.createElement("div", {
     className: "card-title"
