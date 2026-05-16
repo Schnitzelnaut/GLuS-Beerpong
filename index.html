@@ -3778,6 +3778,9 @@ function BettingTab({
     onUpdate(safeBets.filter(b => b.id !== betId));
   }
   const odds = showNew ? calcTeamOdds(slotsA, slotsB, players, matches, archive, numLeagues) : null;
+  const activeBet = addBettorId ? safeBets.find(b => b.id === addBettorId) || null : null;
+  const activeBetTeamA = activeBet ? activeBet.playersA.map(p => p.name).join(" + ") : "";
+  const activeBetTeamB = activeBet ? activeBet.playersB.map(p => p.name).join(" + ") : "";
   return /*#__PURE__*/React.createElement("div", null, currentUser && /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
@@ -4422,211 +4425,203 @@ function BettingTab({
         fontWeight: 700
       }
     }, "Netto: ", (bet.gartenIn || 0) - (bet.gartenOut || 0) >= 0 ? "+" : "", ((bet.gartenIn || 0) - (bet.gartenOut || 0)).toFixed(2), "\u20AC")));
-  }), addBettorId && (() => {
-    const bet = safeBets.find(b => b.id === addBettorId);
-    if (!bet) return null;
-    const teamALabel = bet.playersA.map(p => p.name).join(" + ");
-    const teamBLabel = bet.playersB.map(p => p.name).join(" + ");
-    return /*#__PURE__*/React.createElement("div", {
-      className: "confirm-modal",
-      onClick: e => e.target === e.currentTarget && setAddBettorId(null)
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "confirm-card",
-      style: {
-        maxWidth: 420
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontFamily: "'Permanent Marker',cursive",
-        fontSize: 18,
-        color: "var(--gold)",
-        marginBottom: 4
-      }
-    }, "\uD83D\uDCB0 Einsatz platzieren"), /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 12,
-        color: "var(--dim)",
-        marginBottom: 16
-      }
-    }, teamALabel, " vs ", teamBLabel), /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "grid",
-        gridTemplateColumns: "1fr 1fr",
-        gap: 10,
-        marginBottom: 14
-      }
-    }, /*#__PURE__*/React.createElement("button", {
-      onClick: () => setBettorSide("A"),
-      style: {
-        padding: "14px 10px",
-        borderRadius: 6,
-        border: `2px solid ${bettorSide === "A" ? "#8bc34a" : "var(--border)"}`,
-        background: bettorSide === "A" ? "rgba(139,195,74,0.12)" : "transparent",
-        color: bettorSide === "A" ? "#8bc34a" : "var(--dim)",
-        cursor: "pointer",
-        fontFamily: "'Barlow Condensed',sans-serif",
-        fontWeight: 700,
-        fontSize: 14,
-        textAlign: "center",
-        transition: "all 0.15s"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 22,
-        marginBottom: 4
-      }
-    }, bet.oddsA), /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 11,
-        letterSpacing: 1
-      }
-    }, teamALabel)), /*#__PURE__*/React.createElement("button", {
-      onClick: () => setBettorSide("B"),
-      style: {
-        padding: "14px 10px",
-        borderRadius: 6,
-        border: `2px solid ${bettorSide === "B" ? "#f0c040" : "var(--border)"}`,
-        background: bettorSide === "B" ? "rgba(240,192,64,0.12)" : "transparent",
-        color: bettorSide === "B" ? "#f0c040" : "var(--dim)",
-        cursor: "pointer",
-        fontFamily: "'Barlow Condensed',sans-serif",
-        fontWeight: 700,
-        fontSize: 14,
-        textAlign: "center",
-        transition: "all 0.15s"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 22,
-        marginBottom: 4
-      }
-    }, bet.oddsB), /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 11,
-        letterSpacing: 1
-      }
-    }, teamBLabel))), /*#__PURE__*/React.createElement("div", {
-      style: {
-        marginBottom: 10
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 11,
-        color: "var(--dim)",
-        fontFamily: "'Barlow Condensed',sans-serif",
-        letterSpacing: 1.5,
-        textTransform: "uppercase",
-        marginBottom: 5
-      }
-    }, "Dein Name"), /*#__PURE__*/React.createElement("input", {
-      className: "liga-add-input",
-      style: {
-        width: "100%"
-      },
-      placeholder: "Name",
-      value: bettorName,
-      onChange: e => !currentUser && setBettorName(e.target.value),
-      readOnly: !!currentUser,
-      style: {
-        ...(currentUser ? {
-          background: "rgba(240,192,64,0.05)",
-          borderColor: "var(--gold)"
-        } : {})
-      }
-    })), /*#__PURE__*/React.createElement("div", {
-      style: {
-        marginBottom: 10
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 11,
-        color: "var(--dim)",
-        fontFamily: "'Barlow Condensed',sans-serif",
-        letterSpacing: 1.5,
-        textTransform: "uppercase",
-        marginBottom: 5
-      }
-    }, "Einsatz (max. ", maxBet || 50, "\u20AC)", currentUser && /*#__PURE__*/React.createElement("span", {
-      style: {
-        color: myBalance > 0 ? "var(--gold)" : "#ff8a8a",
-        marginLeft: 8
-      }
-    }, "\xB7 Konto: ", myBalance.toFixed(2), "\u20AC")), /*#__PURE__*/React.createElement("div", {
-      style: {
-        position: "relative"
-      }
-    }, /*#__PURE__*/React.createElement("input", {
-      className: "liga-add-input",
-      type: "number",
-      min: "0.50",
-      step: "0.50",
-      max: maxBet || 50,
-      placeholder: `0.00`,
-      value: bettorAmount,
-      onChange: e => setBettorAmount(e.target.value),
-      style: {
-        width: "100%",
-        paddingRight: 28
-      },
-      autoFocus: true
-    }), /*#__PURE__*/React.createElement("span", {
-      style: {
-        position: "absolute",
-        right: 10,
-        top: "50%",
-        transform: "translateY(-50%)",
-        color: "var(--dim)"
-      }
-    }, "\u20AC")), bettorAmount && parseFloat(bettorAmount) > myBalance && currentUser && /*#__PURE__*/React.createElement("div", {
-      style: {
-        color: "#ff8a8a",
-        fontSize: 12,
-        marginTop: 4
-      }
-    }, "\u26A0\uFE0F Nicht genug Guthaben"), bettorAmount && parseFloat(bettorAmount) > (maxBet || 50) && /*#__PURE__*/React.createElement("div", {
-      style: {
-        color: "#ff8a8a",
-        fontSize: 12,
-        marginTop: 4
-      }
-    }, "\u26A0\uFE0F Maximum ", maxBet || 50, "\u20AC")), bettorAmount && parseFloat(bettorAmount) > 0 && /*#__PURE__*/React.createElement("div", {
-      style: {
-        padding: "10px 14px",
-        background: "rgba(240,192,64,0.08)",
-        borderRadius: 6,
-        marginBottom: 14,
-        textAlign: "center"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 11,
-        color: "var(--dim)",
-        fontFamily: "'Barlow Condensed',sans-serif",
-        letterSpacing: 1.5,
-        textTransform: "uppercase",
-        marginBottom: 2
-      }
-    }, "Bei Gewinn erh\xE4ltst du"), /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontFamily: "'Permanent Marker',cursive",
-        fontSize: 28,
-        color: "var(--gold)"
-      }
-    }, (parseFloat(bettorAmount) * (bettorSide === "A" ? bet.oddsA : bet.oddsB)).toFixed(2), "\u20AC")), /*#__PURE__*/React.createElement("div", {
-      className: "confirm-actions"
-    }, /*#__PURE__*/React.createElement("button", {
-      className: "demo-btn",
-      onClick: () => setAddBettorId(null)
-    }, "Abbrechen"), /*#__PURE__*/React.createElement("button", {
-      className: "big-btn",
-      style: {
-        margin: 0,
-        maxWidth: 160
-      },
-      disabled: !bettorName.trim() || !bettorAmount || parseFloat(bettorAmount) <= 0,
-      onClick: () => addBettor(addBettorId)
-    }, "\uD83D\uDCB0 Wetten!"))));
-  })(), confirmSettle && /*#__PURE__*/React.createElement("div", {
+  }), activeBet && /*#__PURE__*/React.createElement("div", {
+    className: "confirm-modal",
+    onClick: e => e.target === e.currentTarget && setAddBettorId(null)
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "confirm-card",
+    style: {
+      maxWidth: 420
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "'Permanent Marker',cursive",
+      fontSize: 18,
+      color: "var(--gold)",
+      marginBottom: 4
+    }
+  }, "\uD83D\uDCB0 Einsatz platzieren"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--dim)",
+      marginBottom: 16
+    }
+  }, activeBetTeamA, " vs ", activeBetTeamB), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 10,
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setBettorSide("A"),
+    style: {
+      padding: "14px 10px",
+      borderRadius: 6,
+      border: `2px solid ${bettorSide === "A" ? "#8bc34a" : "var(--border)"}`,
+      background: bettorSide === "A" ? "rgba(139,195,74,0.12)" : "transparent",
+      color: bettorSide === "A" ? "#8bc34a" : "var(--dim)",
+      cursor: "pointer",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      fontWeight: 700,
+      fontSize: 14,
+      textAlign: "center",
+      transition: "all 0.15s"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 22,
+      marginBottom: 4
+    }
+  }, activeBet.oddsA), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      letterSpacing: 1
+    }
+  }, activeBetTeamA)), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setBettorSide("B"),
+    style: {
+      padding: "14px 10px",
+      borderRadius: 6,
+      border: `2px solid ${bettorSide === "B" ? "#f0c040" : "var(--border)"}`,
+      background: bettorSide === "B" ? "rgba(240,192,64,0.12)" : "transparent",
+      color: bettorSide === "B" ? "#f0c040" : "var(--dim)",
+      cursor: "pointer",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      fontWeight: 700,
+      fontSize: 14,
+      textAlign: "center",
+      transition: "all 0.15s"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 22,
+      marginBottom: 4
+    }
+  }, activeBet.oddsB), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      letterSpacing: 1
+    }
+  }, activeBetTeamB))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--dim)",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      letterSpacing: 1.5,
+      textTransform: "uppercase",
+      marginBottom: 5
+    }
+  }, "Dein Name"), /*#__PURE__*/React.createElement("input", {
+    className: "liga-add-input",
+    style: {
+      width: "100%",
+      ...(currentUser ? {
+        background: "rgba(240,192,64,0.05)",
+        borderColor: "var(--gold)"
+      } : {})
+    },
+    placeholder: "Name",
+    value: bettorName,
+    onChange: e => !currentUser && setBettorName(e.target.value),
+    readOnly: !!currentUser
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--dim)",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      letterSpacing: 1.5,
+      textTransform: "uppercase",
+      marginBottom: 5
+    }
+  }, "Einsatz (max. ", maxBet || 50, "\u20AC)", currentUser && /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: myBalance > 0 ? "var(--gold)" : "#ff8a8a",
+      marginLeft: 8
+    }
+  }, "\xB7 Konto: ", myBalance.toFixed(2), "\u20AC")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "relative"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "liga-add-input",
+    type: "number",
+    min: "0.50",
+    step: "0.50",
+    max: maxBet || 50,
+    placeholder: `0.00`,
+    value: bettorAmount,
+    onChange: e => setBettorAmount(e.target.value),
+    style: {
+      width: "100%",
+      paddingRight: 28
+    },
+    autoFocus: true
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      position: "absolute",
+      right: 10,
+      top: "50%",
+      transform: "translateY(-50%)",
+      color: "var(--dim)"
+    }
+  }, "\u20AC")), bettorAmount && parseFloat(bettorAmount) > myBalance && currentUser && /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#ff8a8a",
+      fontSize: 12,
+      marginTop: 4
+    }
+  }, "\u26A0\uFE0F Nicht genug Guthaben"), bettorAmount && parseFloat(bettorAmount) > (maxBet || 50) && /*#__PURE__*/React.createElement("div", {
+    style: {
+      color: "#ff8a8a",
+      fontSize: 12,
+      marginTop: 4
+    }
+  }, "\u26A0\uFE0F Maximum ", maxBet || 50, "\u20AC")), bettorAmount && parseFloat(bettorAmount) > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 14px",
+      background: "rgba(240,192,64,0.08)",
+      borderRadius: 6,
+      marginBottom: 14,
+      textAlign: "center"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--dim)",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      letterSpacing: 1.5,
+      textTransform: "uppercase",
+      marginBottom: 2
+    }
+  }, "Bei Gewinn erh\xE4ltst du"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "'Permanent Marker',cursive",
+      fontSize: 28,
+      color: "var(--gold)"
+    }
+  }, (parseFloat(bettorAmount) * (bettorSide === "A" ? activeBet.oddsA : activeBet.oddsB)).toFixed(2), "\u20AC")), /*#__PURE__*/React.createElement("div", {
+    className: "confirm-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "demo-btn",
+    onClick: () => setAddBettorId(null)
+  }, "Abbrechen"), /*#__PURE__*/React.createElement("button", {
+    className: "big-btn",
+    style: {
+      margin: 0,
+      maxWidth: 160
+    },
+    disabled: !bettorName.trim() || !bettorAmount || parseFloat(bettorAmount) <= 0,
+    onClick: () => addBettor(addBettorId)
+  }, "\uD83D\uDCB0 Wetten!"))))), confirmSettle && /*#__PURE__*/React.createElement("div", {
     className: "confirm-modal",
     onClick: e => e.target === e.currentTarget && setConfirmSettle(null)
   }, /*#__PURE__*/React.createElement("div", {
