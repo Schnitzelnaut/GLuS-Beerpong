@@ -3645,7 +3645,12 @@ function BettingTab({
       balance: newBalance
     });
   }
-  const safeBets = bets || [];
+  const safeBets = (bets || []).map(b => ({
+    ...b,
+    status: b.status || "open",
+    // Firebase kann undefined zurückgeben
+    bettors: b.bettors || []
+  }));
 
   // Garten Kasse
   const settled = safeBets.filter(b => b.status === "settled");
@@ -4190,7 +4195,7 @@ function BettingTab({
     const teamBLabel = bet.playersB.map(p => p.name).join(" + ");
     const totalIn = (bet.bettors || []).reduce((s, b) => s + b.amount, 0);
     const totalWinnersOut = (bet.bettors || []).filter(b => b.side === bet.winner).reduce((s, b) => s + b.payout, 0);
-    const isOpen = bet.status === "open";
+    const isOpen = bet.status !== "settled";
     return /*#__PURE__*/React.createElement("div", {
       key: bet.id,
       className: "card",
