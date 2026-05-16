@@ -11,6 +11,17 @@ const LOGO_URL="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUAAAAE4CAMAAAAdP9
 const STORAGE_KEY = "glus_turnier_state";
 const LIGA_STORAGE_KEY = "glus_liga_state";
 const ACCOUNTS_FB_PATH = "accounts";
+const BETS_FB_PATH = "bets"; // Wetten separat von Liga-State speichern
+
+async function writeBet(bet) {
+  return writeFirebase(`${BETS_FB_PATH}/${bet.id}`, bet);
+}
+async function deleteBet(betId) {
+  return writeFirebase(`${BETS_FB_PATH}/${betId}`, null);
+}
+function subscribeBets(cb) {
+  return subscribeFirebase(BETS_FB_PATH, cb);
+}
 const CURRENT_USER_KEY = "glus_current_user"; // {id, name, role} in localStorage
 
 // Simple password hash (good enough for friend group)
@@ -3579,7 +3590,6 @@ function calcTeamOdds(teamA, teamB, allPlayers, matches, archive, numLeagues) {
   };
 }
 function BettingTab({
-  bets,
   players,
   matches,
   archive,
@@ -3587,9 +3597,9 @@ function BettingTab({
   currentUser,
   canCreateBet,
   maxBet,
-  onSetMaxBet,
-  onUpdate
+  onSetMaxBet
 }) {
+  const [bets, setBets] = useState([]);
   const [showNew, setShowNew] = useState(false);
   const [teamSize, setTeamSize] = useState(1);
   const [slotsA, setSlotsA] = useState([{
@@ -3606,6 +3616,20 @@ function BettingTab({
   const [bettorSide, setBettorSide] = useState("A");
   const [bettorAmount, setBettorAmount] = useState("");
   const [accounts, setAccounts] = useState({});
+
+  // Wetten aus Firebase laden (eigener Pfad — kein Array-Problem mehr)
+  useEffect(() => {
+    const es = subscribeBets(data => {
+      if (!data) {
+        setBets([]);
+        return;
+      }
+      setBets(Object.values(data).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)));
+    });
+    return () => {
+      if (es) es.close();
+    };
+  }, []);
 
   // Load accounts for balance display
   useEffect(() => {
@@ -3645,13 +3669,9 @@ function BettingTab({
       balance: newBalance
     });
   }
-  const safeBets = (bets || []).map(b => ({
-    ...b,
-    bettors: b.bettors || []
-  }));
 
   // Garten Kasse
-  const settled = safeBets.filter(b => !!b.winner);
+  const settled = bets.filter(b => !!b.winner);
   const gartenIn = settled.reduce((s, b) => s + (b.gartenIn || 0), 0);
   const gartenOut = settled.reduce((s, b) => s + (b.gartenOut || 0), 0);
   const gartenNet = gartenIn - gartenOut;
@@ -3675,7 +3695,7 @@ function BettingTab({
     };
     setSlots(s);
   }
-  function createBet() {
+  async function createBet() {
     const validA = slotsA.filter(s => s.name.trim());
     const validB = slotsB.filter(s => s.name.trim());
     if (validA.length === 0 || validB.length === 0) return;
@@ -3697,7 +3717,7 @@ function BettingTab({
       gartenIn: 0,
       gartenOut: 0
     };
-    onUpdate([bet, ...safeBets]);
+    await writeBet(bet);
     setShowNew(false);
     setSlotsA([{
       id: null,
@@ -3715,7 +3735,7 @@ function BettingTab({
       alert(`Maximum Einsatz ist ${maxBet || 50}€!`);
       return;
     }
-    const bet = safeBets.find(b => b.id === betId);
+    const bet = bets.find(b => b.id === betId);
     if (!bet) return;
     const amount = parseFloat(bettorAmount);
     const odds = bettorSide === "A" ? bet.oddsA : bet.oddsB;
@@ -3744,16 +3764,17 @@ function BettingTab({
       paid: false,
       accountId
     };
-    onUpdate(safeBets.map(b => b.id !== betId ? b : {
-      ...b,
-      bettors: [...(b.bettors || []), newBettor]
-    }));
+    const updatedBet = {
+      ...bets.find(b => b.id === betId),
+      bettors: [...(bets.find(b => b.id === betId)?.bettors || []), newBettor]
+    };
+    await writeBet(updatedBet);
     setBettorName(currentUser?.name || "");
     setBettorAmount("");
     setAddBettorId(null);
   }
   async function settleBet(betId, winner) {
-    const bet = safeBets.find(b => b.id === betId);
+    const bet = bets.find(b => b.id === betId);
     if (!bet) return;
     const allIn = (bet.bettors || []).reduce((s, bt) => s + bt.amount, 0);
     const winners = (bet.bettors || []).filter(bt => bt.side === winner);
@@ -3765,23 +3786,23 @@ function BettingTab({
         await adjustAccountBalance(bt.accountId, bt.payout, `Wettgewinn (${bet.playersA.map(p => p.name).join("+")} vs ${bet.playersB.map(p => p.name).join("+")})`);
       }
     }
-    onUpdate(safeBets.map(b => b.id !== betId ? b : {
-      ...b,
-      status: "settled",
+    const settledBet = {
+      ...bets.find(b => b.id === betId),
       winner,
       gartenIn: allIn,
       gartenOut: paidOut,
-      bettors: (b.bettors || []).map(bt => ({
+      bettors: (bets.find(b => b.id === betId)?.bettors || []).map(bt => ({
         ...bt,
         paid: bt.side === winner
       }))
-    }));
+    };
+    await writeBet(settledBet);
   }
-  function deleteBet(betId) {
-    onUpdate(safeBets.filter(b => b.id !== betId));
+  async function handleDeleteBet(betId) {
+    await deleteBet(betId);
   }
   const odds = showNew ? calcTeamOdds(slotsA, slotsB, players, matches, archive, numLeagues) : null;
-  const activeBet = addBettorId ? safeBets.find(b => b.id === addBettorId) || null : null;
+  const activeBet = addBettorId ? bets.find(b => b.id === addBettorId) || null : null;
   const activeBetTeamA = activeBet ? activeBet.playersA.map(p => p.name).join(" + ") : "";
   const activeBetTeamB = activeBet ? activeBet.playersB.map(p => p.name).join(" + ") : "";
   return /*#__PURE__*/React.createElement("div", null, currentUser && /*#__PURE__*/React.createElement("div", {
@@ -4186,9 +4207,9 @@ function BettingTab({
     },
     onClick: createBet,
     disabled: !slotsA.some(s => s.name) || !slotsB.some(s => s.name)
-  }, "\uD83C\uDFB2 Wette erstellen"))), safeBets.length === 0 && /*#__PURE__*/React.createElement("div", {
+  }, "\uD83C\uDFB2 Wette erstellen"))), bets.length === 0 && /*#__PURE__*/React.createElement("div", {
     className: "liga-empty"
-  }, "Noch keine Wetten. Los geht's!"), safeBets.map(bet => {
+  }, "Noch keine Wetten. Los geht's!"), bets.map(bet => {
     const teamALabel = bet.playersA.map(p => p.name).join(" + ");
     const teamBLabel = bet.playersB.map(p => p.name).join(" + ");
     const totalIn = (bet.bettors || []).reduce((s, b) => s + b.amount, 0);
@@ -4220,7 +4241,7 @@ function BettingTab({
       }
     }, new Date(bet.createdAt).toLocaleDateString("de-DE"), " \xB7 ", bet.teamSize, "v", bet.teamSize, " \xB7 ", isOpen ? "🟡 Offen" : "✅ Abgeschlossen")), isOpen && /*#__PURE__*/React.createElement("button", {
       className: "match-hist-del",
-      onClick: () => deleteBet(bet.id)
+      onClick: () => handleDeleteBet(bet.id)
     }, "\u2715")), /*#__PURE__*/React.createElement("div", {
       style: {
         display: "grid",
@@ -8315,16 +8336,12 @@ function LigaApp({
       })
     }, "Aus Archiv l\xF6schen")));
   }))), tab === "betting" && (isAdmin || currentUser) && /*#__PURE__*/React.createElement(BettingTab, {
-    bets: state.bets || [],
     players: players,
     matches: matches,
     archive: archive,
     numLeagues: numLeagues,
     currentUser: currentUser,
     canCreateBet: canEdit,
-    onUpdate: newBets => update({
-      bets: newBets
-    }),
     maxBet: state.maxBet ?? 50,
     onSetMaxBet: isAdmin ? val => update({
       maxBet: val
