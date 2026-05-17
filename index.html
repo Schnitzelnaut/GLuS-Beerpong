@@ -3621,9 +3621,29 @@ function BettingTab({
   const myBalance = myAccount?.balance || 0;
 
   // Formular: Neue Wette
-  const [newA, setNewA] = useState('');
-  const [newB, setNewB] = useState('');
+  const [teamSize, setTeamSize] = useState(1);
+  const [slotsA, setSlotsA] = useState(['', '', '', '', '']);
+  const [slotsB, setSlotsB] = useState(['', '', '', '', '']);
   const [creating, setCreating] = useState(false);
+  function getSlotPlayer(id) {
+    return id ? players.find(p => p.id === id) : null;
+  }
+  function slotsFilled(slots) {
+    return slots.slice(0, teamSize).every(id => id);
+  }
+  function slotsToTeam(slots) {
+    return slots.slice(0, teamSize).map(id => {
+      const p = getSlotPlayer(id);
+      return p ? {
+        id: p.id,
+        name: p.name
+      } : {
+        id: null,
+        name: id
+      };
+    });
+  }
+  const usedIds = [...slotsA.slice(0, teamSize), ...slotsB.slice(0, teamSize)].filter(Boolean);
 
   // Formular: Einsatz eintragen
   const [bettingOnId, setBettingOnId] = useState(null);
@@ -3634,29 +3654,9 @@ function BettingTab({
   const [settling, setSettling] = useState(null); // {betId, winner}
 
   async function createBet() {
-    if (!newA.trim() || !newB.trim()) return;
-    const sA = newA.trim().split(',').map(s => s.trim()).filter(Boolean);
-    const sB = newB.trim().split(',').map(s => s.trim()).filter(Boolean);
-    const pA = sA.map(n => {
-      const p = players.find(x => x.name === n);
-      return p ? {
-        id: p.id,
-        name: p.name
-      } : {
-        id: null,
-        name: n
-      };
-    });
-    const pB = sB.map(n => {
-      const p = players.find(x => x.name === n);
-      return p ? {
-        id: p.id,
-        name: p.name
-      } : {
-        id: null,
-        name: n
-      };
-    });
+    if (!slotsFilled(slotsA) || !slotsFilled(slotsB)) return;
+    const pA = slotsToTeam(slotsA);
+    const pB = slotsToTeam(slotsB);
     const odds = calcTeamOdds(pA, pB, players, matches, archive, numLeagues);
     const bet = {
       id: 'bet_' + Date.now(),
@@ -3669,8 +3669,9 @@ function BettingTab({
       winner: null
     };
     await writeBet(bet);
-    setNewA('');
-    setNewB('');
+    setSlotsA(['', '', '', '', '']);
+    setSlotsB(['', '', '', '', '']);
+    setTeamSize(1);
     setCreating(false);
   }
   async function placeBet(betId) {
@@ -3878,70 +3879,101 @@ function BettingTab({
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "card-title"
-  }, "\uD83C\uDFB2 Neue Wette erstellen"), /*#__PURE__*/React.createElement("div", {
+  }, "\uD83C\uDFB2 Neue Wette"), /*#__PURE__*/React.createElement("div", {
     style: {
-      marginBottom: 10
+      display: "flex",
+      gap: 6,
+      marginBottom: 14,
+      alignItems: "center",
+      flexWrap: "wrap"
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "var(--dim)"
+    }
+  }, "Format:"), [1, 2, 3, 4, 5].map(n => /*#__PURE__*/React.createElement("button", {
+    key: n,
+    className: `win-btn${teamSize === n ? " active" : ""}`,
+    style: {
+      minWidth: 44,
+      padding: "6px 8px"
+    },
+    onClick: () => {
+      setTeamSize(n);
+      setSlotsA(['', '', '', '', '']);
+      setSlotsB(['', '', '', '', '']);
+    }
+  }, n, "v", n))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 10,
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11,
       color: "#8bc34a",
       fontFamily: "'Barlow Condensed',sans-serif",
       letterSpacing: 1.5,
       textTransform: "uppercase",
-      marginBottom: 4
+      marginBottom: 6
     }
-  }, "Team A (Namen mit Komma trennen)"), /*#__PURE__*/React.createElement("input", {
-    className: "liga-add-input",
+  }, "Team A"), Array.from({
+    length: teamSize
+  }).map((_, i) => /*#__PURE__*/React.createElement("select", {
+    key: i,
+    className: "match-entry-select",
     style: {
+      marginBottom: 6,
       width: "100%"
     },
-    placeholder: "z.B. Tim oder Tim, Leon",
-    value: newA,
-    onChange: e => setNewA(e.target.value)
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 14
+    value: slotsA[i] || '',
+    onChange: e => {
+      const n = [...slotsA];
+      n[i] = e.target.value;
+      setSlotsA(n);
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u2014 Spieler ", i + 1, " \u2014"), players.map(p => /*#__PURE__*/React.createElement("option", {
+    key: p.id,
+    value: p.id,
+    disabled: usedIds.includes(p.id) && slotsA[i] !== p.id
+  }, p.name))))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11,
       color: "#f0c040",
       fontFamily: "'Barlow Condensed',sans-serif",
       letterSpacing: 1.5,
       textTransform: "uppercase",
-      marginBottom: 4
+      marginBottom: 6
     }
-  }, "Team B"), /*#__PURE__*/React.createElement("input", {
-    className: "liga-add-input",
+  }, "Team B"), Array.from({
+    length: teamSize
+  }).map((_, i) => /*#__PURE__*/React.createElement("select", {
+    key: i,
+    className: "match-entry-select",
     style: {
+      marginBottom: 6,
       width: "100%"
     },
-    placeholder: "z.B. Lorenzo oder Lorenzo, Max",
-    value: newB,
-    onChange: e => setNewB(e.target.value)
-  })), newA.trim() && newB.trim() && (() => {
-    const pA = newA.trim().split(',').map(n => {
-      const p = players.find(x => x.name === n.trim());
-      return p ? {
-        id: p.id,
-        name: p.name
-      } : {
-        id: null,
-        name: n.trim()
-      };
-    }).filter(p => p.name);
-    const pB = newB.trim().split(',').map(n => {
-      const p = players.find(x => x.name === n.trim());
-      return p ? {
-        id: p.id,
-        name: p.name
-      } : {
-        id: null,
-        name: n.trim()
-      };
-    }).filter(p => p.name);
-    if (!pA.length || !pB.length) return null;
+    value: slotsB[i] || '',
+    onChange: e => {
+      const n = [...slotsB];
+      n[i] = e.target.value;
+      setSlotsB(n);
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u2014 Spieler ", i + 1, " \u2014"), players.map(p => /*#__PURE__*/React.createElement("option", {
+    key: p.id,
+    value: p.id,
+    disabled: usedIds.includes(p.id) && slotsB[i] !== p.id
+  }, p.name)))))), slotsFilled(slotsA) && slotsFilled(slotsB) && (() => {
+    const pA = slotsToTeam(slotsA),
+      pB = slotsToTeam(slotsB);
     const o = calcTeamOdds(pA, pB, players, matches, archive, numLeagues);
     return /*#__PURE__*/React.createElement("div", {
       style: {
@@ -3973,7 +4005,7 @@ function BettingTab({
         fontSize: 11,
         color: "var(--dim)"
       }
-    }, o.probA, "%")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    }, o.probA, "% Chance")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 10,
         color: "var(--dim)",
@@ -3992,7 +4024,7 @@ function BettingTab({
         fontSize: 11,
         color: "var(--dim)"
       }
-    }, o.probB, "%")));
+    }, o.probB, "% Chance")));
   })(), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -4007,7 +4039,7 @@ function BettingTab({
       margin: 0,
       flex: 1
     },
-    disabled: !newA.trim() || !newB.trim(),
+    disabled: !slotsFilled(slotsA) || !slotsFilled(slotsB),
     onClick: createBet
   }, "\u2713 Wette erstellen"))), bets.length === 0 && /*#__PURE__*/React.createElement("div", {
     className: "liga-empty"
