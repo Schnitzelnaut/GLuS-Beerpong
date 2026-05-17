@@ -3600,40 +3600,18 @@ function BettingTab({
   onSetMaxBet
 }) {
   const [bets, setBets] = useState([]);
-  const [showNew, setShowNew] = useState(false);
-  const [teamSize, setTeamSize] = useState(1);
-  const [slotsA, setSlotsA] = useState([{
-    id: null,
-    name: ""
-  }]);
-  const [slotsB, setSlotsB] = useState([{
-    id: null,
-    name: ""
-  }]);
-  const [addBettorId, setAddBettorId] = useState(null);
-  const [confirmSettle, setConfirmSettle] = useState(null); // {betId, side, label}
-  const [bettorName, setBettorName] = useState(currentUser?.name || "");
-  const [bettorSide, setBettorSide] = useState("A");
-  const [bettorAmount, setBettorAmount] = useState("");
   const [accounts, setAccounts] = useState({});
 
-  // Wetten aus Firebase laden (eigener Pfad — kein Array-Problem mehr)
+  // Wetten direkt aus Firebase
   useEffect(() => {
     const es = subscribeBets(data => {
-      if (!data) {
-        setBets([]);
-        return;
-      }
-      setBets(Object.values(data).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)));
+      setBets(data ? Object.values(data).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)) : []);
     });
     return () => {
       if (es) es.close();
     };
   }, []);
-
-  // Load accounts for balance display
   useEffect(() => {
-    fetchAllAccounts().then(data => setAccounts(data || {}));
     const es = subscribeAccounts(data => setAccounts(data || {}));
     return () => {
       if (es) es.close();
@@ -3642,256 +3620,146 @@ function BettingTab({
   const myAccount = currentUser ? Object.values(accounts).find(a => a.id === currentUser.id) : null;
   const myBalance = myAccount?.balance || 0;
 
-  // Update account balance in Firebase
-  async function adjustAccountBalance(accountId, delta, description) {
-    const acc = Object.values(accounts).find(a => a.id === accountId);
-    if (!acc) return;
-    const newBalance = Math.round(((acc.balance || 0) + delta) * 100) / 100;
-    const tx = {
-      id: "tx_" + Date.now(),
-      date: Date.now(),
-      type: delta >= 0 ? "win" : "bet",
-      amount: delta,
-      description
-    };
-    const updated = {
-      ...acc,
-      balance: newBalance,
-      transactions: [tx, ...(acc.transactions || [])]
-    };
-    await writeAccount(updated);
-    setAccounts(prev => ({
-      ...prev,
-      [accountId]: updated
-    }));
-    if (currentUser?.id === accountId) saveCurrentUser({
-      ...currentUser,
-      balance: newBalance
+  // Formular: Neue Wette
+  const [newA, setNewA] = useState('');
+  const [newB, setNewB] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  // Formular: Einsatz eintragen
+  const [bettingOnId, setBettingOnId] = useState(null);
+  const [betSide, setBetSide] = useState('A');
+  const [betAmount, setBetAmount] = useState('');
+
+  // Settle-Bestätigung
+  const [settling, setSettling] = useState(null); // {betId, winner}
+
+  async function createBet() {
+    if (!newA.trim() || !newB.trim()) return;
+    const sA = newA.trim().split(',').map(s => s.trim()).filter(Boolean);
+    const sB = newB.trim().split(',').map(s => s.trim()).filter(Boolean);
+    const pA = sA.map(n => {
+      const p = players.find(x => x.name === n);
+      return p ? {
+        id: p.id,
+        name: p.name
+      } : {
+        id: null,
+        name: n
+      };
     });
+    const pB = sB.map(n => {
+      const p = players.find(x => x.name === n);
+      return p ? {
+        id: p.id,
+        name: p.name
+      } : {
+        id: null,
+        name: n
+      };
+    });
+    const odds = calcTeamOdds(pA, pB, players, matches, archive, numLeagues);
+    const bet = {
+      id: 'bet_' + Date.now(),
+      createdAt: Date.now(),
+      playersA: pA,
+      playersB: pB,
+      oddsA: Math.round(odds.oddsA * 100) / 100,
+      oddsB: Math.round(odds.oddsB * 100) / 100,
+      bettors: {},
+      winner: null
+    };
+    await writeBet(bet);
+    setNewA('');
+    setNewB('');
+    setCreating(false);
+  }
+  async function placeBet(betId) {
+    const amount = parseFloat(betAmount);
+    if (!amount || amount <= 0 || amount > (maxBet || 50)) return;
+    const name = currentUser?.name || '';
+    if (!name) return;
+    const bet = bets.find(b => b.id === betId);
+    if (!bet || bet.winner) return;
+    const odds = betSide === 'A' ? bet.oddsA : bet.oddsB;
+    const payout = Math.round(amount * odds * 100) / 100;
+    // Kontostand abbuchen falls Account vorhanden
+    if (myAccount && myBalance >= amount) {
+      const tx = {
+        id: 'tx_' + Date.now(),
+        date: Date.now(),
+        type: 'bet',
+        amount: -amount,
+        description: `Wette: ${bet.playersA.map(p => p.name).join('+')} vs ${bet.playersB.map(p => p.name).join('+')}`
+      };
+      await writeAccount({
+        ...myAccount,
+        balance: Math.round((myBalance - amount) * 100) / 100,
+        transactions: [tx, ...(myAccount.transactions || [])]
+      });
+    }
+    const bettorKey = 'b_' + Date.now();
+    const updatedBet = {
+      ...bet,
+      bettors: {
+        ...(bet.bettors || {}),
+        [bettorKey]: {
+          id: bettorKey,
+          name,
+          side: betSide,
+          amount,
+          payout,
+          accountId: currentUser?.id || null
+        }
+      }
+    };
+    await writeBet(updatedBet);
+    setBettingOnId(null);
+    setBetAmount('');
+  }
+  async function settleBet(betId, winner) {
+    const bet = bets.find(b => b.id === betId);
+    if (!bet) return;
+    const bettorList = Object.values(bet.bettors || {});
+    const gartenIn = bettorList.reduce((s, b) => s + b.amount, 0);
+    const gartenOut = bettorList.filter(b => b.side === winner).reduce((s, b) => s + b.payout, 0);
+    // Gewinner gutschreiben
+    for (const b of bettorList.filter(b => b.side === winner && b.accountId)) {
+      const acc = Object.values(accounts).find(a => a.id === b.accountId);
+      if (!acc) continue;
+      const tx = {
+        id: 'tx_' + Date.now(),
+        date: Date.now(),
+        type: 'win',
+        amount: b.payout,
+        description: `Wettgewinn`
+      };
+      await writeAccount({
+        ...acc,
+        balance: Math.round(((acc.balance || 0) + b.payout) * 100) / 100,
+        transactions: [tx, ...(acc.transactions || [])]
+      });
+    }
+    await writeBet({
+      ...bet,
+      winner,
+      gartenIn,
+      gartenOut,
+      bettors: Object.fromEntries(bettorList.map(b => [b.id || 'b' + Date.now(), {
+        ...b,
+        paid: b.side === winner
+      }]))
+    });
+    setSettling(null);
   }
 
   // Garten Kasse
   const settled = bets.filter(b => !!b.winner);
   const gartenIn = settled.reduce((s, b) => s + (b.gartenIn || 0), 0);
   const gartenOut = settled.reduce((s, b) => s + (b.gartenOut || 0), 0);
-  const gartenNet = gartenIn - gartenOut;
-  function syncSlots(size, slots, setSlots) {
-    const s = [...slots];
-    while (s.length < size) s.push({
-      id: null,
-      name: ""
-    });
-    setSlots(s.slice(0, size));
-  }
-  function updateSlot(slots, setSlots, idx, val) {
-    const p = players.find(p => p.id === val);
-    const s = [...slots];
-    s[idx] = p ? {
-      id: p.id,
-      name: p.name
-    } : {
-      id: null,
-      name: val
-    };
-    setSlots(s);
-  }
-  async function createBet() {
-    const validA = slotsA.filter(s => s.name.trim());
-    const validB = slotsB.filter(s => s.name.trim());
-    if (validA.length === 0 || validB.length === 0) return;
-    const {
-      oddsA,
-      oddsB
-    } = calcTeamOdds(validA, validB, players, matches, archive, numLeagues);
-    const bet = {
-      id: "bet_" + Date.now(),
-      createdAt: Date.now(),
-      status: "open",
-      teamSize,
-      playersA: validA,
-      playersB: validB,
-      oddsA: Math.round(oddsA * 100) / 100,
-      oddsB: Math.round(oddsB * 100) / 100,
-      winner: null,
-      bettors: [],
-      gartenIn: 0,
-      gartenOut: 0
-    };
-    await writeBet(bet);
-    setShowNew(false);
-    setSlotsA([{
-      id: null,
-      name: ""
-    }]);
-    setSlotsB([{
-      id: null,
-      name: ""
-    }]);
-    setTeamSize(1);
-  }
-  async function addBettor(betId) {
-    if (!bettorName.trim() || !bettorAmount || parseFloat(bettorAmount) <= 0) return;
-    if (parseFloat(bettorAmount) > (maxBet || 50)) {
-      alert(`Maximum Einsatz ist ${maxBet || 50}€!`);
-      return;
-    }
-    const bet = bets.find(b => b.id === betId);
-    if (!bet) return;
-    const amount = parseFloat(bettorAmount);
-    const odds = bettorSide === "A" ? bet.oddsA : bet.oddsB;
-    const payout = Math.round(amount * odds * 100) / 100;
-
-    // Find account for this bettor
-    const bettorAccount = Object.values(accounts).find(a => a.name.toLowerCase() === bettorName.trim().toLowerCase());
-    const accountId = bettorAccount?.id || null;
-
-    // Check balance if account exists
-    if (accountId) {
-      const bal = bettorAccount.balance || 0;
-      if (bal < amount) {
-        alert(`${bettorName} hat nur ${bal.toFixed(2)}€ auf dem Konto. Einsatz zu hoch!`);
-        return;
-      }
-      // Deduct from balance
-      await adjustAccountBalance(accountId, -amount, `Wetteinsatz: ${bet.playersA.map(p => p.name).join("+")} vs ${bet.playersB.map(p => p.name).join("+")}`);
-    }
-    const newBettor = {
-      id: "bt_" + Date.now(),
-      name: bettorName.trim(),
-      side: bettorSide,
-      amount,
-      payout,
-      paid: false,
-      accountId
-    };
-    const updatedBet = {
-      ...bets.find(b => b.id === betId),
-      bettors: [...(bets.find(b => b.id === betId)?.bettors || []), newBettor]
-    };
-    await writeBet(updatedBet);
-    setBettorName(currentUser?.name || "");
-    setBettorAmount("");
-    setAddBettorId(null);
-  }
-  async function settleBet(betId, winner) {
-    const bet = bets.find(b => b.id === betId);
-    if (!bet) return;
-    const allIn = (bet.bettors || []).reduce((s, bt) => s + bt.amount, 0);
-    const winners = (bet.bettors || []).filter(bt => bt.side === winner);
-    const paidOut = winners.reduce((s, bt) => s + bt.payout, 0);
-
-    // Credit winners with accounts
-    for (const bt of winners) {
-      if (bt.accountId) {
-        await adjustAccountBalance(bt.accountId, bt.payout, `Wettgewinn (${bet.playersA.map(p => p.name).join("+")} vs ${bet.playersB.map(p => p.name).join("+")})`);
-      }
-    }
-    const settledBet = {
-      ...bets.find(b => b.id === betId),
-      winner,
-      gartenIn: allIn,
-      gartenOut: paidOut,
-      bettors: (bets.find(b => b.id === betId)?.bettors || []).map(bt => ({
-        ...bt,
-        paid: bt.side === winner
-      }))
-    };
-    await writeBet(settledBet);
-  }
-  async function handleDeleteBet(betId) {
-    await deleteBet(betId);
-  }
-  const odds = showNew ? calcTeamOdds(slotsA, slotsB, players, matches, archive, numLeagues) : null;
-  const activeBet = addBettorId ? bets.find(b => b.id === addBettorId) || null : null;
-  const activeBetTeamA = activeBet ? activeBet.playersA.map(p => p.name).join(" + ") : "";
-  const activeBetTeamB = activeBet ? activeBet.playersB.map(p => p.name).join(" + ") : "";
-  return /*#__PURE__*/React.createElement("div", null, currentUser && /*#__PURE__*/React.createElement("div", {
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
-      marginBottom: 14,
-      borderColor: myBalance > 0 ? "#5a5020" : "var(--border)"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      flexWrap: "wrap",
-      gap: 8
-    }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: "var(--dim)",
-      fontFamily: "'Barlow Condensed',sans-serif",
-      letterSpacing: 1.5,
-      textTransform: "uppercase",
-      marginBottom: 2
-    }
-  }, "\uD83D\uDCB3 Mein Konto"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: "'Permanent Marker',cursive",
-      fontSize: 32,
-      color: myBalance > 0 ? "var(--gold)" : myBalance < 0 ? "#ff8a8a" : "var(--dim)"
-    }
-  }, myBalance.toFixed(2), "\u20AC")), myBalance > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "info-box",
-    style: {
-      margin: 0,
-      fontSize: 12
-    }
-  }, "Guthaben kann f\xFCr Wetten genutzt werden. F\xFCr Auszahlung Admin kontaktieren."), myBalance === 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: "var(--dim)"
-    }
-  }, "Kein Guthaben. Admin kann einzahlen.")), (myAccount?.transactions || []).length > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginTop: 12,
-      borderTop: "1px solid var(--border)",
-      paddingTop: 10
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 10,
-      color: "var(--dim)",
-      fontFamily: "'Barlow Condensed',sans-serif",
-      letterSpacing: 1.5,
-      textTransform: "uppercase",
-      marginBottom: 6
-    }
-  }, "Letzte Transaktionen"), (myAccount.transactions || []).slice(0, 5).map(tx => /*#__PURE__*/React.createElement("div", {
-    key: tx.id,
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      fontSize: 12,
-      padding: "4px 0",
-      borderBottom: "1px solid rgba(255,255,255,0.04)"
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--dim)"
-    }
-  }, new Date(tx.date).toLocaleDateString("de-DE")), /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--text)",
-      flex: 1,
-      padding: "0 8px",
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-      whiteSpace: "nowrap"
-    }
-  }, tx.description), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontWeight: 700,
-      color: tx.amount >= 0 ? "#8bc34a" : "#ff8a8a",
-      fontFamily: "'Barlow Condensed',sans-serif"
-    }
-  }, tx.amount >= 0 ? "+" : "", tx.amount?.toFixed(2), "\u20AC"))))), /*#__PURE__*/React.createElement("div", {
-    className: "card",
-    style: {
-      marginBottom: 18,
+      marginBottom: 16,
       background: "rgba(240,192,64,0.06)",
       borderColor: "#5a5020"
     }
@@ -3900,7 +3768,7 @@ function BettingTab({
       display: "flex",
       alignItems: "center",
       justifyContent: "space-between",
-      marginBottom: 14,
+      marginBottom: 12,
       flexWrap: "wrap",
       gap: 8
     }
@@ -3923,7 +3791,7 @@ function BettingTab({
       letterSpacing: 1.5,
       textTransform: "uppercase"
     }
-  }, "Max. Einsatz:"), onSetMaxBet ? /*#__PURE__*/React.createElement("div", {
+  }, "Max:"), onSetMaxBet ? /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -3937,7 +3805,7 @@ function BettingTab({
       fontFamily: "'Permanent Marker',cursive",
       fontSize: 18,
       color: "var(--gold)",
-      minWidth: 52,
+      minWidth: 48,
       textAlign: "center"
     }
   }, maxBet || 50, "\u20AC"), /*#__PURE__*/React.createElement("button", {
@@ -3953,323 +3821,257 @@ function BettingTab({
     style: {
       display: "grid",
       gridTemplateColumns: "1fr 1fr 1fr",
-      gap: 14,
+      gap: 12,
       textAlign: "center"
     }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, [["Einnahmen", "#8bc34a", `+${gartenIn.toFixed(2)}€`], ["Ausgaben", "#ff8a8a", `-${gartenOut.toFixed(2)}€`], ["Netto", gartenIn - gartenOut >= 0 ? "var(--gold)" : "#ff8a8a", `${gartenIn - gartenOut >= 0 ? "+" : ""}${(gartenIn - gartenOut).toFixed(2)}€`]].map(([l, c, v]) => /*#__PURE__*/React.createElement("div", {
+    key: l
+  }, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 11,
+      fontSize: 10,
       color: "var(--dim)",
       fontFamily: "'Barlow Condensed',sans-serif",
       letterSpacing: 1.5,
       textTransform: "uppercase",
-      marginBottom: 4
+      marginBottom: 2
     }
-  }, "Einnahmen"), /*#__PURE__*/React.createElement("div", {
+  }, l), /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: "'Permanent Marker',cursive",
-      fontSize: 28,
-      color: "#8bc34a"
+      fontSize: 24,
+      color: c
     }
-  }, "+", gartenIn.toFixed(2), "\u20AC")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: "var(--dim)",
-      fontFamily: "'Barlow Condensed',sans-serif",
-      letterSpacing: 1.5,
-      textTransform: "uppercase",
-      marginBottom: 4
-    }
-  }, "Auszahlungen"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: "'Permanent Marker',cursive",
-      fontSize: 28,
-      color: "#ff8a8a"
-    }
-  }, "-", gartenOut.toFixed(2), "\u20AC")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: "var(--dim)",
-      fontFamily: "'Barlow Condensed',sans-serif",
-      letterSpacing: 1.5,
-      textTransform: "uppercase",
-      marginBottom: 4
-    }
-  }, "Netto \uD83C\uDF7A"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: "'Permanent Marker',cursive",
-      fontSize: 28,
-      color: gartenNet >= 0 ? "var(--gold)" : "#ff8a8a"
-    }
-  }, gartenNet >= 0 ? "+" : "", gartenNet.toFixed(2), "\u20AC")))), !showNew ? canCreateBet ? /*#__PURE__*/React.createElement("button", {
-    className: "big-btn",
-    style: {
-      marginBottom: 18
-    },
-    onClick: () => setShowNew(true)
-  }, "+ Neue Wette erstellen") : /*#__PURE__*/React.createElement("div", {
-    className: "info-box",
-    style: {
-      marginBottom: 18
-    }
-  }, "Nur Admins und Editoren k\xF6nnen Wetten erstellen. Du kannst auf bestehende Wetten setzen.") : /*#__PURE__*/React.createElement("div", {
+  }, v))))), currentUser && /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
-      marginBottom: 18,
-      borderColor: "var(--gold)"
+      marginBottom: 16,
+      borderColor: myBalance > 0 ? "#5a5020" : "var(--border)"
     }
   }, /*#__PURE__*/React.createElement("div", {
-    className: "card-title"
-  }, "\uD83C\uDFB2 Neue Wette"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
-      gap: 8,
-      marginBottom: 14,
-      flexWrap: "wrap",
+      justifyContent: "space-between",
       alignItems: "center"
     }
   }, /*#__PURE__*/React.createElement("span", {
     style: {
-      color: "var(--dim)",
-      fontSize: 13
+      fontSize: 13,
+      color: "var(--dim)"
     }
-  }, "Format:"), [1, 2, 3, 4, 5].map(n => /*#__PURE__*/React.createElement("button", {
-    key: n,
-    className: `win-btn${teamSize === n ? " active" : ""}`,
+  }, "\uD83D\uDCB3 Mein Guthaben"), /*#__PURE__*/React.createElement("span", {
     style: {
-      minWidth: 48
+      fontFamily: "'Permanent Marker',cursive",
+      fontSize: 24,
+      color: myBalance > 0 ? "var(--gold)" : "var(--dim)"
+    }
+  }, myBalance.toFixed(2), "\u20AC"))), canCreateBet && !creating && /*#__PURE__*/React.createElement("button", {
+    className: "big-btn",
+    style: {
+      marginBottom: 16
     },
-    onClick: () => {
-      setTeamSize(n);
-      syncSlots(n, slotsA, setSlotsA);
-      syncSlots(n, slotsB, setSlotsB);
-    }
-  }, n, "v", n))), /*#__PURE__*/React.createElement("div", {
+    onClick: () => setCreating(true)
+  }, "+ Neue Wette"), canCreateBet && creating && /*#__PURE__*/React.createElement("div", {
+    className: "card",
     style: {
-      display: "grid",
-      gridTemplateColumns: "1fr auto 1fr",
-      gap: 12,
-      alignItems: "start",
+      marginBottom: 16,
+      borderColor: "var(--gold)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "\uD83C\uDFB2 Neue Wette erstellen"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "#8bc34a",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      letterSpacing: 1.5,
+      textTransform: "uppercase",
+      marginBottom: 4
+    }
+  }, "Team A (Namen mit Komma trennen)"), /*#__PURE__*/React.createElement("input", {
+    className: "liga-add-input",
+    style: {
+      width: "100%"
+    },
+    placeholder: "z.B. Tim oder Tim, Leon",
+    value: newA,
+    onChange: e => setNewA(e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
       marginBottom: 14
     }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: "'Barlow Condensed',sans-serif",
-      fontSize: 11,
-      color: "var(--gold)",
-      letterSpacing: 2,
-      marginBottom: 8,
-      textTransform: "uppercase"
-    }
-  }, "Team A"), slotsA.slice(0, teamSize).map((slot, i) => /*#__PURE__*/React.createElement("div", {
-    key: i,
-    style: {
-      marginBottom: 6
-    }
-  }, /*#__PURE__*/React.createElement("select", {
-    className: "match-entry-select",
-    value: slot.id || "",
-    onChange: e => {
-      if (e.target.value === "__free__") {
-        const n = prompt("Name eingeben:");
-        if (n) updateSlot(slotsA, setSlotsA, i, n);
-      } else updateSlot(slotsA, setSlotsA, i, e.target.value);
-    }
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, "\u2014 Spieler ", i + 1, " \u2014"), players.map(p => /*#__PURE__*/React.createElement("option", {
-    key: p.id,
-    value: p.id
-  }, p.name)), /*#__PURE__*/React.createElement("option", {
-    value: "__free__"
-  }, "\u270F\uFE0F Freier Name...")), slot.name && !slot.id && /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: "var(--green2)",
-      marginTop: 2,
-      paddingLeft: 4
-    }
-  }, slot.name)))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      paddingTop: 24,
-      textAlign: "center",
-      fontFamily: "'Permanent Marker',cursive",
-      fontSize: 22,
-      color: "var(--dim)"
-    }
-  }, "VS"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: "'Barlow Condensed',sans-serif",
-      fontSize: 11,
-      color: "#ff8a8a",
-      letterSpacing: 2,
-      marginBottom: 8,
-      textTransform: "uppercase"
-    }
-  }, "Team B"), slotsB.slice(0, teamSize).map((slot, i) => /*#__PURE__*/React.createElement("div", {
-    key: i,
-    style: {
-      marginBottom: 6
-    }
-  }, /*#__PURE__*/React.createElement("select", {
-    className: "match-entry-select",
-    value: slot.id || "",
-    onChange: e => {
-      if (e.target.value === "__free__") {
-        const n = prompt("Name eingeben:");
-        if (n) updateSlot(slotsB, setSlotsB, i, n);
-      } else updateSlot(slotsB, setSlotsB, i, e.target.value);
-    }
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, "\u2014 Spieler ", i + 1, " \u2014"), players.map(p => /*#__PURE__*/React.createElement("option", {
-    key: p.id,
-    value: p.id
-  }, p.name)), /*#__PURE__*/React.createElement("option", {
-    value: "__free__"
-  }, "\u270F\uFE0F Freier Name...")), slot.name && !slot.id && /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: "var(--green2)",
-      marginTop: 2,
-      paddingLeft: 4
-    }
-  }, slot.name))))), odds && (slotsA.some(s => s.name) || slotsB.some(s => s.name)) && /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: 10,
-      padding: 14,
-      background: "rgba(10,28,10,0.6)",
-      borderRadius: 6,
-      marginBottom: 14,
-      border: "1px solid var(--border)"
-    }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      textAlign: "center"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 10,
-      color: "var(--dim)",
+      fontSize: 11,
+      color: "#f0c040",
       fontFamily: "'Barlow Condensed',sans-serif",
       letterSpacing: 1.5,
-      textTransform: "uppercase"
+      textTransform: "uppercase",
+      marginBottom: 4
     }
-  }, "Team A"), /*#__PURE__*/React.createElement("div", {
+  }, "Team B"), /*#__PURE__*/React.createElement("input", {
+    className: "liga-add-input",
     style: {
-      fontFamily: "'Permanent Marker',cursive",
-      fontSize: 32,
-      color: "#8bc34a"
-    }
-  }, odds.oddsA.toFixed(2)), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: "var(--dim)"
-    }
-  }, odds.probA, "% Chance")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      textAlign: "center"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 10,
-      color: "var(--dim)",
-      fontFamily: "'Barlow Condensed',sans-serif",
-      letterSpacing: 1.5,
-      textTransform: "uppercase"
-    }
-  }, "Team B"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: "'Permanent Marker',cursive",
-      fontSize: 32,
-      color: "#ff8a8a"
-    }
-  }, odds.oddsB.toFixed(2)), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: "var(--dim)"
-    }
-  }, odds.probB, "% Chance"))), /*#__PURE__*/React.createElement("div", {
+      width: "100%"
+    },
+    placeholder: "z.B. Lorenzo oder Lorenzo, Max",
+    value: newB,
+    onChange: e => setNewB(e.target.value)
+  })), newA.trim() && newB.trim() && (() => {
+    const pA = newA.trim().split(',').map(n => {
+      const p = players.find(x => x.name === n.trim());
+      return p ? {
+        id: p.id,
+        name: p.name
+      } : {
+        id: null,
+        name: n.trim()
+      };
+    }).filter(p => p.name);
+    const pB = newB.trim().split(',').map(n => {
+      const p = players.find(x => x.name === n.trim());
+      return p ? {
+        id: p.id,
+        name: p.name
+      } : {
+        id: null,
+        name: n.trim()
+      };
+    }).filter(p => p.name);
+    if (!pA.length || !pB.length) return null;
+    const o = calcTeamOdds(pA, pB, players, matches, archive, numLeagues);
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 10,
+        padding: 12,
+        background: "rgba(10,28,10,0.6)",
+        borderRadius: 6,
+        marginBottom: 12,
+        textAlign: "center"
+      }
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "var(--dim)",
+        fontFamily: "'Barlow Condensed',sans-serif",
+        letterSpacing: 1.5,
+        textTransform: "uppercase"
+      }
+    }, "Quote A"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "'Permanent Marker',cursive",
+        fontSize: 28,
+        color: "#8bc34a"
+      }
+    }, o.oddsA.toFixed(2)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "var(--dim)"
+      }
+    }, o.probA, "%")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "var(--dim)",
+        fontFamily: "'Barlow Condensed',sans-serif",
+        letterSpacing: 1.5,
+        textTransform: "uppercase"
+      }
+    }, "Quote B"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "'Permanent Marker',cursive",
+        fontSize: 28,
+        color: "#f0c040"
+      }
+    }, o.oddsB.toFixed(2)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "var(--dim)"
+      }
+    }, o.probB, "%")));
+  })(), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
-      gap: 10
+      gap: 8
     }
   }, /*#__PURE__*/React.createElement("button", {
     className: "demo-btn",
-    onClick: () => setShowNew(false)
+    onClick: () => setCreating(false)
   }, "Abbrechen"), /*#__PURE__*/React.createElement("button", {
     className: "big-btn",
     style: {
       margin: 0,
       flex: 1
     },
-    onClick: createBet,
-    disabled: !slotsA.some(s => s.name) || !slotsB.some(s => s.name)
-  }, "\uD83C\uDFB2 Wette erstellen"))), bets.length === 0 && /*#__PURE__*/React.createElement("div", {
+    disabled: !newA.trim() || !newB.trim(),
+    onClick: createBet
+  }, "\u2713 Wette erstellen"))), bets.length === 0 && /*#__PURE__*/React.createElement("div", {
     className: "liga-empty"
-  }, "Noch keine Wetten. Los geht's!"), bets.map(bet => {
-    const teamALabel = bet.playersA.map(p => p.name).join(" + ");
-    const teamBLabel = bet.playersB.map(p => p.name).join(" + ");
-    const totalIn = (bet.bettors || []).reduce((s, b) => s + b.amount, 0);
-    const totalWinnersOut = (bet.bettors || []).filter(b => b.side === bet.winner).reduce((s, b) => s + b.payout, 0);
-    const isOpen = !bet.winner; // offen = kein Gewinner gesetzt
+  }, "Noch keine Wetten."), bets.map(bet => {
+    const isOpen = !bet.winner;
+    const bettorList = Object.values(bet.bettors || {});
+    const teamA = (bet.playersA || []).map(p => p.name).join(' + ');
+    const teamB = (bet.playersB || []).map(p => p.name).join(' + ');
+    const totalIn = bettorList.reduce((s, b) => s + b.amount, 0);
     return /*#__PURE__*/React.createElement("div", {
       key: bet.id,
       className: "card",
       style: {
-        marginBottom: 16,
+        marginBottom: 14,
         borderLeft: `3px solid ${isOpen ? "var(--gold)" : "#8bc34a"}`
       }
     }, /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
         justifyContent: "space-between",
-        alignItems: "flex-start",
+        alignItems: "center",
         marginBottom: 10,
         flexWrap: "wrap",
-        gap: 8
+        gap: 6
       }
-    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement("div", {
       style: {
-        fontFamily: "'Barlow Condensed',sans-serif",
         fontSize: 11,
         color: "var(--dim)",
+        fontFamily: "'Barlow Condensed',sans-serif",
         letterSpacing: 1.5,
         textTransform: "uppercase"
       }
-    }, new Date(bet.createdAt).toLocaleDateString("de-DE"), " \xB7 ", bet.teamSize, "v", bet.teamSize, " \xB7 ", isOpen ? "🟡 Offen" : "✅ Abgeschlossen")), isOpen && /*#__PURE__*/React.createElement("button", {
+    }, new Date(bet.createdAt || Date.now()).toLocaleDateString("de-DE"), " \xB7 ", isOpen ? "🟡 Offen" : "✅ Abgeschlossen"), isOpen && canCreateBet && /*#__PURE__*/React.createElement("button", {
       className: "match-hist-del",
       onClick: () => handleDeleteBet(bet.id)
     }, "\u2715")), /*#__PURE__*/React.createElement("div", {
       style: {
         display: "grid",
         gridTemplateColumns: "1fr auto 1fr",
-        gap: 10,
+        gap: 8,
         alignItems: "center",
-        marginBottom: 14
+        marginBottom: 12
       }
     }, /*#__PURE__*/React.createElement("div", {
       style: {
         textAlign: "center",
         padding: "10px 6px",
-        background: "rgba(139,195,74,0.08)",
+        background: `rgba(139,195,74,${bet.winner === "A" ? 0.15 : 0.06})`,
         borderRadius: 6,
         border: `1px solid ${bet.winner === "A" ? "#8bc34a" : "var(--border)"}`,
-        opacity: bet.winner === "B" ? 0.5 : 1
+        opacity: bet.winner === "B" ? 0.4 : 1
       }
     }, /*#__PURE__*/React.createElement("div", {
       style: {
-        fontFamily: "'Barlow Condensed',sans-serif",
         fontWeight: 700,
         fontSize: 13,
-        marginBottom: 4
+        marginBottom: 4,
+        lineHeight: 1.2
       }
-    }, teamALabel), /*#__PURE__*/React.createElement("div", {
+    }, teamA), /*#__PURE__*/React.createElement("div", {
       style: {
         fontFamily: "'Permanent Marker',cursive",
-        fontSize: 26,
+        fontSize: 24,
         color: "#8bc34a"
       }
     }, bet.oddsA), bet.winner === "A" && /*#__PURE__*/React.createElement("div", {
@@ -4282,377 +4084,261 @@ function BettingTab({
       style: {
         textAlign: "center",
         fontFamily: "'Permanent Marker',cursive",
-        fontSize: 18,
+        fontSize: 16,
         color: "var(--dim)"
       }
     }, "VS"), /*#__PURE__*/React.createElement("div", {
       style: {
         textAlign: "center",
         padding: "10px 6px",
-        background: "rgba(255,138,138,0.08)",
+        background: `rgba(240,192,64,${bet.winner === "B" ? 0.15 : 0.06})`,
         borderRadius: 6,
-        border: `1px solid ${bet.winner === "B" ? "#ff8a8a" : "var(--border)"}`,
-        opacity: bet.winner === "A" ? 0.5 : 1
+        border: `1px solid ${bet.winner === "B" ? "#f0c040" : "var(--border)"}`,
+        opacity: bet.winner === "A" ? 0.4 : 1
       }
     }, /*#__PURE__*/React.createElement("div", {
       style: {
-        fontFamily: "'Barlow Condensed',sans-serif",
         fontWeight: 700,
         fontSize: 13,
-        marginBottom: 4
+        marginBottom: 4,
+        lineHeight: 1.2
       }
-    }, teamBLabel), /*#__PURE__*/React.createElement("div", {
+    }, teamB), /*#__PURE__*/React.createElement("div", {
       style: {
         fontFamily: "'Permanent Marker',cursive",
-        fontSize: 26,
-        color: "#ff8a8a"
+        fontSize: 24,
+        color: "#f0c040"
       }
     }, bet.oddsB), bet.winner === "B" && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 11,
-        color: "#ff8a8a",
+        color: "#f0c040",
         marginTop: 2
       }
-    }, "\uD83C\uDFC6 Gewinner"))), (bet.bettors || []).length > 0 && /*#__PURE__*/React.createElement("div", {
+    }, "\uD83C\uDFC6 Gewinner"))), bettorList.length > 0 && /*#__PURE__*/React.createElement("div", {
       style: {
-        marginBottom: 12
+        marginBottom: 10
       }
     }, /*#__PURE__*/React.createElement("div", {
       style: {
-        fontFamily: "'Barlow Condensed',sans-serif",
-        fontSize: 11,
+        fontSize: 10,
         color: "var(--dim)",
+        fontFamily: "'Barlow Condensed',sans-serif",
         letterSpacing: 1.5,
         textTransform: "uppercase",
-        marginBottom: 8
+        marginBottom: 6
       }
-    }, "Setzer (", bet.bettors.length, ") \xB7 Einsatz: ", totalIn.toFixed(2), "\u20AC", !isOpen ? ` · Auszahlung: ${totalWinnersOut.toFixed(2)}€` : ""), (bet.bettors || []).map(bt => /*#__PURE__*/React.createElement("div", {
-      key: bt.id,
+    }, "Setzer \xB7 ", totalIn.toFixed(2), "\u20AC gesamt"), bettorList.map(b => /*#__PURE__*/React.createElement("div", {
+      key: b.id,
       style: {
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
-        padding: "8px 0",
-        borderBottom: "1px solid rgba(255,255,255,0.05)",
-        gap: 8
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "flex",
-        alignItems: "center",
-        gap: 8
+        padding: "6px 0",
+        borderBottom: "1px solid rgba(255,255,255,0.04)",
+        fontSize: 13
       }
     }, /*#__PURE__*/React.createElement("span", {
       style: {
-        fontSize: 14,
-        color: bt.side === "A" ? "#8bc34a" : "#ff8a8a",
+        color: b.side === "A" ? "#8bc34a" : "#f0c040",
         fontWeight: 700,
-        fontFamily: "'Barlow Condensed',sans-serif"
+        marginRight: 8
       }
-    }, bt.side === "A" ? "▲ A" : "▼ B"), /*#__PURE__*/React.createElement("span", {
+    }, b.side === "A" ? "▲" : "▼"), /*#__PURE__*/React.createElement("span", {
       style: {
-        fontSize: 14
+        flex: 1
       }
-    }, bt.name, bt.accountId && /*#__PURE__*/React.createElement("span", {
-      style: {
-        color: "var(--gold)",
-        fontSize: 11,
-        marginLeft: 4
-      }
-    }, "\uD83D\uDCB3"))), /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "flex",
-        gap: 12,
-        alignItems: "center",
-        flexShrink: 0
-      }
-    }, /*#__PURE__*/React.createElement("span", {
+    }, b.name), /*#__PURE__*/React.createElement("span", {
       style: {
         color: "var(--dim)",
-        fontSize: 13
+        marginRight: 8
       }
-    }, bt.amount.toFixed(2), "\u20AC"), /*#__PURE__*/React.createElement("span", {
+    }, b.amount.toFixed(2), "\u20AC"), /*#__PURE__*/React.createElement("span", {
       style: {
-        color: bt.paid ? "#8bc34a" : isOpen ? "var(--gold)" : "#ff8a8a",
-        fontWeight: 700,
-        fontSize: 13
+        color: b.paid ? "#8bc34a" : isOpen ? "var(--gold)" : "#ff8a8a",
+        fontWeight: 700
       }
-    }, "\u2192 ", bt.payout.toFixed(2), "\u20AC ", bt.paid ? "✓" : ""))))), isOpen && /*#__PURE__*/React.createElement("button", {
+    }, "\u2192 ", b.payout.toFixed(2), "\u20AC", b.paid ? " ✓" : "")))), isOpen && currentUser && bettingOnId !== bet.id && /*#__PURE__*/React.createElement("button", {
       className: "demo-btn",
       style: {
         width: "100%",
-        marginBottom: 10
+        marginBottom: 8
       },
       onClick: () => {
-        setAddBettorId(bet.id);
-        setBettorName(currentUser?.name || "");
-        setBettorAmount("");
-        setBettorSide("A");
+        setBettingOnId(bet.id);
+        setBetSide("A");
+        setBetAmount("");
       }
-    }, "+ Setzer eintragen"), isOpen && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    }, "\uD83D\uDCB0 Einsatz platzieren"), isOpen && currentUser && bettingOnId === bet.id && /*#__PURE__*/React.createElement("div", {
       style: {
-        fontFamily: "'Barlow Condensed',sans-serif",
-        fontSize: 11,
-        color: "var(--dim)",
-        letterSpacing: 1.5,
-        textTransform: "uppercase",
+        padding: 12,
+        background: "rgba(10,28,10,0.6)",
+        borderRadius: 6,
         marginBottom: 8
       }
-    }, "Gewinner festlegen:"), /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement("div", {
       style: {
         display: "grid",
         gridTemplateColumns: "1fr 1fr",
-        gap: 8
+        gap: 8,
+        marginBottom: 10
       }
     }, /*#__PURE__*/React.createElement("button", {
-      className: "win-btn",
+      onClick: () => setBetSide("A"),
       style: {
-        background: "rgba(139,195,74,0.1)",
-        borderColor: "#8bc34a",
+        padding: "12px 8px",
+        borderRadius: 6,
+        border: `2px solid ${betSide === "A" ? "#8bc34a" : "var(--border)"}`,
+        background: betSide === "A" ? "rgba(139,195,74,0.12)" : "transparent",
+        color: betSide === "A" ? "#8bc34a" : "var(--dim)",
+        cursor: "pointer",
+        fontFamily: "'Barlow Condensed',sans-serif",
+        fontWeight: 700,
+        fontSize: 13
+      }
+    }, bet.oddsA, " \xB7 ", teamA.split(" + ")[0]), /*#__PURE__*/React.createElement("button", {
+      onClick: () => setBetSide("B"),
+      style: {
+        padding: "12px 8px",
+        borderRadius: 6,
+        border: `2px solid ${betSide === "B" ? "#f0c040" : "var(--border)"}`,
+        background: betSide === "B" ? "rgba(240,192,64,0.12)" : "transparent",
+        color: betSide === "B" ? "#f0c040" : "var(--dim)",
+        cursor: "pointer",
+        fontFamily: "'Barlow Condensed',sans-serif",
+        fontWeight: 700,
+        fontSize: 13
+      }
+    }, bet.oddsB, " \xB7 ", teamB.split(" + ")[0])), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        alignItems: "center"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1,
+        position: "relative"
+      }
+    }, /*#__PURE__*/React.createElement("input", {
+      className: "liga-add-input",
+      type: "number",
+      min: "0.50",
+      step: "0.50",
+      max: maxBet || 50,
+      placeholder: `Einsatz (max. ${maxBet || 50}€)`,
+      value: betAmount,
+      onChange: e => setBetAmount(e.target.value),
+      style: {
+        width: "100%",
+        paddingRight: 24
+      }
+    }), /*#__PURE__*/React.createElement("span", {
+      style: {
+        position: "absolute",
+        right: 8,
+        top: "50%",
+        transform: "translateY(-50%)",
+        color: "var(--dim)",
+        fontSize: 13
+      }
+    }, "\u20AC")), betAmount && parseFloat(betAmount) > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        color: "var(--gold)",
+        fontWeight: 700,
+        fontSize: 14,
+        whiteSpace: "nowrap"
+      }
+    }, "\u2192 ", (parseFloat(betAmount) * (betSide === "A" ? bet.oddsA : bet.oddsB)).toFixed(2), "\u20AC"), /*#__PURE__*/React.createElement("button", {
+      className: "big-btn",
+      style: {
+        margin: 0,
+        padding: "8px 14px"
+      },
+      onClick: () => placeBet(bet.id)
+    }, "\u2713")), myAccount && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "var(--dim)",
+        marginTop: 4
+      }
+    }, "Guthaben: ", myBalance.toFixed(2), "\u20AC"), /*#__PURE__*/React.createElement("button", {
+      className: "demo-btn",
+      style: {
+        marginTop: 8,
+        width: "100%",
+        fontSize: 12
+      },
+      onClick: () => setBettingOnId(null)
+    }, "Abbrechen")), isOpen && canCreateBet && /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 8,
+        marginTop: 4
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setSettling({
+        betId: bet.id,
+        winner: "A",
+        label: teamA.split(" + ")[0]
+      }),
+      style: {
+        padding: "10px",
+        borderRadius: 6,
+        border: "1px solid #8bc34a",
+        background: "rgba(139,195,74,0.08)",
         color: "#8bc34a",
-        minHeight: 44
-      },
-      onClick: () => setConfirmSettle({
+        cursor: "pointer",
+        fontFamily: "'Barlow Condensed',sans-serif",
+        fontWeight: 700,
+        fontSize: 12
+      }
+    }, "\uD83C\uDFC6 ", teamA.split(" + ")[0], " gewinnt"), /*#__PURE__*/React.createElement("button", {
+      onClick: () => setSettling({
         betId: bet.id,
-        side: "A",
-        label: teamALabel.split("+")[0].trim()
-      })
-    }, "\uD83C\uDFC6 ", teamALabel.split("+")[0].trim(), " gewinnt"), /*#__PURE__*/React.createElement("button", {
-      className: "win-btn",
+        winner: "B",
+        label: teamB.split(" + ")[0]
+      }),
       style: {
-        background: "rgba(255,138,138,0.1)",
-        borderColor: "#ff8a8a",
-        color: "#ff8a8a",
-        minHeight: 44
-      },
-      onClick: () => setConfirmSettle({
-        betId: bet.id,
-        side: "B",
-        label: teamBLabel.split("+")[0].trim()
-      })
-    }, "\uD83C\uDFC6 ", teamBLabel.split("+")[0].trim(), " gewinnt"))), !!bet.winner && /*#__PURE__*/React.createElement("div", {
+        padding: "10px",
+        borderRadius: 6,
+        border: "1px solid #f0c040",
+        background: "rgba(240,192,64,0.08)",
+        color: "#f0c040",
+        cursor: "pointer",
+        fontFamily: "'Barlow Condensed',sans-serif",
+        fontWeight: 700,
+        fontSize: 12
+      }
+    }, "\uD83C\uDFC6 ", teamB.split(" + ")[0], " gewinnt")), !isOpen && /*#__PURE__*/React.createElement("div", {
       style: {
-        padding: "10px 12px",
+        padding: "8px 10px",
         background: "rgba(10,28,10,0.5)",
         borderRadius: 6,
         display: "flex",
         justifyContent: "space-between",
-        fontSize: 13
+        fontSize: 12,
+        marginTop: 4
       }
     }, /*#__PURE__*/React.createElement("span", {
       style: {
         color: "var(--dim)"
       }
-    }, "Garten: +", (bet.gartenIn || 0).toFixed(2), "\u20AC gesamt"), /*#__PURE__*/React.createElement("span", {
+    }, "Eins\xE4tze: ", totalIn.toFixed(2), "\u20AC"), /*#__PURE__*/React.createElement("span", {
       style: {
         color: bet.gartenIn - bet.gartenOut >= 0 ? "var(--gold)" : "#ff8a8a",
         fontWeight: 700
       }
-    }, "Netto: ", (bet.gartenIn || 0) - (bet.gartenOut || 0) >= 0 ? "+" : "", ((bet.gartenIn || 0) - (bet.gartenOut || 0)).toFixed(2), "\u20AC")));
-  }), activeBet && /*#__PURE__*/React.createElement("div", {
+    }, "Garten: +", ((bet.gartenIn || 0) - (bet.gartenOut || 0)).toFixed(2), "\u20AC")));
+  }), settling && /*#__PURE__*/React.createElement("div", {
     className: "confirm-modal",
-    onClick: e => e.target === e.currentTarget && setAddBettorId(null)
+    onClick: e => e.target === e.currentTarget && setSettling(null)
   }, /*#__PURE__*/React.createElement("div", {
     className: "confirm-card",
     style: {
-      maxWidth: 420
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: "'Permanent Marker',cursive",
-      fontSize: 18,
-      color: "var(--gold)",
-      marginBottom: 4
-    }
-  }, "\uD83D\uDCB0 Einsatz platzieren"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: "var(--dim)",
-      marginBottom: 16
-    }
-  }, activeBetTeamA, " vs ", activeBetTeamB), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: 10,
-      marginBottom: 14
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    onClick: () => setBettorSide("A"),
-    style: {
-      padding: "14px 10px",
-      borderRadius: 6,
-      border: `2px solid ${bettorSide === "A" ? "#8bc34a" : "var(--border)"}`,
-      background: bettorSide === "A" ? "rgba(139,195,74,0.12)" : "transparent",
-      color: bettorSide === "A" ? "#8bc34a" : "var(--dim)",
-      cursor: "pointer",
-      fontFamily: "'Barlow Condensed',sans-serif",
-      fontWeight: 700,
-      fontSize: 14,
       textAlign: "center",
-      transition: "all 0.15s"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 22,
-      marginBottom: 4
-    }
-  }, activeBet.oddsA), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      letterSpacing: 1
-    }
-  }, activeBetTeamA)), /*#__PURE__*/React.createElement("button", {
-    onClick: () => setBettorSide("B"),
-    style: {
-      padding: "14px 10px",
-      borderRadius: 6,
-      border: `2px solid ${bettorSide === "B" ? "#f0c040" : "var(--border)"}`,
-      background: bettorSide === "B" ? "rgba(240,192,64,0.12)" : "transparent",
-      color: bettorSide === "B" ? "#f0c040" : "var(--dim)",
-      cursor: "pointer",
-      fontFamily: "'Barlow Condensed',sans-serif",
-      fontWeight: 700,
-      fontSize: 14,
-      textAlign: "center",
-      transition: "all 0.15s"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 22,
-      marginBottom: 4
-    }
-  }, activeBet.oddsB), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      letterSpacing: 1
-    }
-  }, activeBetTeamB))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 10
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: "var(--dim)",
-      fontFamily: "'Barlow Condensed',sans-serif",
-      letterSpacing: 1.5,
-      textTransform: "uppercase",
-      marginBottom: 5
-    }
-  }, "Dein Name"), /*#__PURE__*/React.createElement("input", {
-    className: "liga-add-input",
-    style: {
-      width: "100%",
-      ...(currentUser ? {
-        background: "rgba(240,192,64,0.05)",
-        borderColor: "var(--gold)"
-      } : {})
-    },
-    placeholder: "Name",
-    value: bettorName,
-    onChange: e => !currentUser && setBettorName(e.target.value),
-    readOnly: !!currentUser
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 10
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: "var(--dim)",
-      fontFamily: "'Barlow Condensed',sans-serif",
-      letterSpacing: 1.5,
-      textTransform: "uppercase",
-      marginBottom: 5
-    }
-  }, "Einsatz (max. ", maxBet || 50, "\u20AC)", currentUser && /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: myBalance > 0 ? "var(--gold)" : "#ff8a8a",
-      marginLeft: 8
-    }
-  }, "\xB7 Konto: ", myBalance.toFixed(2), "\u20AC")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: "relative"
-    }
-  }, /*#__PURE__*/React.createElement("input", {
-    className: "liga-add-input",
-    type: "number",
-    min: "0.50",
-    step: "0.50",
-    max: maxBet || 50,
-    placeholder: `0.00`,
-    value: bettorAmount,
-    onChange: e => setBettorAmount(e.target.value),
-    style: {
-      width: "100%",
-      paddingRight: 28
-    },
-    autoFocus: true
-  }), /*#__PURE__*/React.createElement("span", {
-    style: {
-      position: "absolute",
-      right: 10,
-      top: "50%",
-      transform: "translateY(-50%)",
-      color: "var(--dim)"
-    }
-  }, "\u20AC")), bettorAmount && parseFloat(bettorAmount) > myBalance && currentUser && /*#__PURE__*/React.createElement("div", {
-    style: {
-      color: "#ff8a8a",
-      fontSize: 12,
-      marginTop: 4
-    }
-  }, "\u26A0\uFE0F Nicht genug Guthaben"), bettorAmount && parseFloat(bettorAmount) > (maxBet || 50) && /*#__PURE__*/React.createElement("div", {
-    style: {
-      color: "#ff8a8a",
-      fontSize: 12,
-      marginTop: 4
-    }
-  }, "\u26A0\uFE0F Maximum ", maxBet || 50, "\u20AC")), bettorAmount && parseFloat(bettorAmount) > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: "10px 14px",
-      background: "rgba(240,192,64,0.08)",
-      borderRadius: 6,
-      marginBottom: 14,
-      textAlign: "center"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 11,
-      color: "var(--dim)",
-      fontFamily: "'Barlow Condensed',sans-serif",
-      letterSpacing: 1.5,
-      textTransform: "uppercase",
-      marginBottom: 2
-    }
-  }, "Bei Gewinn erh\xE4ltst du"), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: "'Permanent Marker',cursive",
-      fontSize: 28,
-      color: "var(--gold)"
-    }
-  }, (parseFloat(bettorAmount) * (bettorSide === "A" ? activeBet.oddsA : activeBet.oddsB)).toFixed(2), "\u20AC")), /*#__PURE__*/React.createElement("div", {
-    className: "confirm-actions"
-  }, /*#__PURE__*/React.createElement("button", {
-    className: "demo-btn",
-    onClick: () => setAddBettorId(null)
-  }, "Abbrechen"), /*#__PURE__*/React.createElement("button", {
-    className: "big-btn",
-    style: {
-      margin: 0,
-      maxWidth: 160
-    },
-    disabled: !bettorName.trim() || !bettorAmount || parseFloat(bettorAmount) <= 0,
-    onClick: () => addBettor(addBettorId)
-  }, "\uD83D\uDCB0 Wetten!"))))), confirmSettle && /*#__PURE__*/React.createElement("div", {
-    className: "confirm-modal",
-    onClick: e => e.target === e.currentTarget && setConfirmSettle(null)
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "confirm-card",
-    style: {
-      maxWidth: 360,
-      textAlign: "center"
+      maxWidth: 340
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -4666,17 +4352,17 @@ function BettingTab({
       color: "var(--gold)",
       marginBottom: 8
     }
-  }, confirmSettle.label, " gewinnt?"), /*#__PURE__*/React.createElement("div", {
+  }, settling.label, " gewinnt?"), /*#__PURE__*/React.createElement("div", {
     style: {
       color: "var(--dim)",
       fontSize: 13,
       marginBottom: 20
     }
-  }, "Wette wird abgerechnet. Das kann nicht r\xFCckg\xE4ngig gemacht werden."), /*#__PURE__*/React.createElement("div", {
+  }, "Wette wird abgerechnet und Guthaben verteilt."), /*#__PURE__*/React.createElement("div", {
     className: "confirm-actions"
   }, /*#__PURE__*/React.createElement("button", {
     className: "demo-btn",
-    onClick: () => setConfirmSettle(null)
+    onClick: () => setSettling(null)
   }, "Abbrechen"), /*#__PURE__*/React.createElement("button", {
     className: "big-btn",
     style: {
@@ -4685,10 +4371,7 @@ function BettingTab({
       background: "#8bc34a",
       color: "#0e1a0e"
     },
-    onClick: () => {
-      settleBet(confirmSettle.betId, confirmSettle.side);
-      setConfirmSettle(null);
-    }
+    onClick: () => settleBet(settling.betId, settling.winner)
   }, "\u2713 Best\xE4tigen")))));
 }
 function BackupsTab({
