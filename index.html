@@ -3752,6 +3752,29 @@ function BettingTab({
     });
     setSettling(null);
   }
+  async function handleDeleteBet(betId) {
+    const bet = bets.find(b => b.id === betId);
+    if (!bet) return;
+    // Rückerstattung: alle Einsätze zurückbuchen
+    for (const b of Object.values(bet.bettors || {})) {
+      if (!b.accountId) continue;
+      const acc = Object.values(accounts).find(a => a.id === b.accountId);
+      if (!acc) continue;
+      const tx = {
+        id: 'tx_' + Date.now(),
+        date: Date.now(),
+        type: 'refund',
+        amount: b.amount,
+        description: `Rückerstattung: ${(bet.playersA || []).map(p => p.name).join('+')} vs ${(bet.playersB || []).map(p => p.name).join('+')}`
+      };
+      await writeAccount({
+        ...acc,
+        balance: Math.round(((acc.balance || 0) + b.amount) * 100) / 100,
+        transactions: [tx, ...(acc.transactions || [])]
+      });
+    }
+    await deleteBet(betId);
+  }
 
   // Garten Kasse
   const settled = bets.filter(b => !!b.winner);
@@ -4075,7 +4098,9 @@ function BettingTab({
       }
     }, new Date(bet.createdAt || Date.now()).toLocaleDateString("de-DE"), " \xB7 ", isOpen ? "🟡 Offen" : "✅ Abgeschlossen"), isOpen && canCreateBet && /*#__PURE__*/React.createElement("button", {
       className: "match-hist-del",
-      onClick: () => handleDeleteBet(bet.id)
+      onClick: () => {
+        if (window.confirm(`Wette löschen? Alle Einsätze werden zurückerstattet.`)) handleDeleteBet(bet.id);
+      }
     }, "\u2715")), /*#__PURE__*/React.createElement("div", {
       style: {
         display: "grid",
@@ -8056,7 +8081,7 @@ function LigaApp({
     archive: archive,
     numLeagues: numLeagues,
     currentUser: currentUser,
-    canCreateBet: canEdit,
+    canCreateBet: isAdmin,
     maxBet: state.maxBet ?? 50,
     onSetMaxBet: isAdmin ? val => update({
       maxBet: val
