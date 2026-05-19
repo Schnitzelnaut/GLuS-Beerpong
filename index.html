@@ -5649,8 +5649,9 @@ function LigaApp({
   const canEdit = role === "admin" || role === "editor";
 
   // ALL HOOKS MUST BE BEFORE ANY EARLY RETURNS
-  // Compare table
-  const allStats = useMemo(() => calcAllPlayerStats(players, matches), [players, matches]);
+  // Compare table — alle Saisons zusammen (aktuelle + Archiv)
+  const allMatchesForCompare = useMemo(() => [...matches, ...(archive || []).flatMap(a => a.matches || [])], [matches, archive]);
+  const allStats = useMemo(() => calcAllPlayerStats(players, allMatchesForCompare), [players, allMatchesForCompare]);
   const sortedStats = useMemo(() => {
     const sorted = [...allStats];
     sorted.sort((a, b) => {
