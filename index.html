@@ -9486,7 +9486,14 @@ function AdminApp({
   initialTournament
 }) {
   const init = initialTournament || {};
-  const [tab, setTab] = useState("setup");
+  const canEditTurnierInit = ["admin", "editor"].includes((() => {
+    try {
+      return JSON.parse(localStorage.getItem("glus_current_user") || "{}").role || "viewer";
+    } catch {
+      return "viewer";
+    }
+  })());
+  const [tab, setTab] = useState(canEditTurnierInit ? "setup" : "groups");
   const [champDismissed, setChampDismissed] = useState(false);
   const [lastChampName, setLastChampName] = useState(null);
   const [tournamentName, setTournamentName] = useState(init.name || "Turnier");
@@ -9837,7 +9844,7 @@ function AdminApp({
     }, allTabs[t]));
   })()))), /*#__PURE__*/React.createElement("div", {
     className: "content"
-  }, tab === "setup" && /*#__PURE__*/React.createElement("div", {
+  }, tab === "setup" && canEditTurnier && /*#__PURE__*/React.createElement("div", {
     className: "setup-grid"
   }, tournamentId && /*#__PURE__*/React.createElement("div", {
     className: "card",
