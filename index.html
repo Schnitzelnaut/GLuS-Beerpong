@@ -3563,28 +3563,56 @@ function BottomNav({
 
 // ─── BETTING TAB ─────────────────────────────────────────────────────────────
 
-function calcTeamOdds(teamA, teamB, allPlayers, matches, archive, numLeagues) {
-  // Get skill score for each slot (Liga player = real stats, free name = 0.5)
-  function slotScore(slot) {
-    if (!slot || !slot.name) return 0.5;
-    if (slot.id) {
-      const stats = calcLifetimeStatsLastN(slot.id, matches, archive, 50);
-      const general = calcSkillScore(stats);
-      const league = allPlayers.find(p => p.id === slot.id)?.league;
-      const leagueScore = typeof league === "number" && numLeagues > 1 ? (numLeagues - 1 - league) / (numLeagues - 1) : 0.5;
-      return general * 0.7 + leagueScore * 0.3;
-    }
-    return 0.5; // unknown player
+function calcTeamOdds(teamA, teamB, allPlayers, allMatches, archive, numLeagues) {
+  // Alle Spiele (inkl. Archiv) für H2H
+  const lifetime = [...(allMatches || []), ...(archive || []).flatMap(a => a.matches || [])];
+  function playerScore(slot) {
+    if (!slot?.id) return {
+      general: 0.5,
+      league: 0.5
+    };
+    const stats = calcLifetimeStatsLastN(slot.id, lifetime, [], 50);
+    const general = calcSkillScore(stats);
+    const league = allPlayers.find(p => p.id === slot.id)?.league;
+    const leagueScore = typeof league === "number" && numLeagues > 1 ? (numLeagues - 1 - league) / (numLeagues - 1) : 0.5;
+    return {
+      general,
+      league: leagueScore,
+      id: slot.id
+    };
   }
-  const scoreA = teamA.length > 0 ? teamA.reduce((s, p) => s + slotScore(p), 0) / teamA.length : 0.5;
-  const scoreB = teamB.length > 0 ? teamB.reduce((s, p) => s + slotScore(p), 0) / teamB.length : 0.5;
-  const total = scoreA + scoreB || 1;
-  const probA = scoreA / total;
-  const probB = scoreB / total;
+  const scoresA = teamA.map(playerScore);
+  const scoresB = teamB.map(playerScore);
+  const avgGenA = scoresA.reduce((s, p) => s + p.general, 0) / Math.max(1, scoresA.length);
+  const avgGenB = scoresB.reduce((s, p) => s + p.general, 0) / Math.max(1, scoresB.length);
+  const avgLigA = scoresA.reduce((s, p) => s + p.league, 0) / Math.max(1, scoresA.length);
+  const avgLigB = scoresB.reduce((s, p) => s + p.league, 0) / Math.max(1, scoresB.length);
+
+  // H2H: bei 1v1 echte H2H-Bilanz einrechnen
+  let h2hWinRateA = 0.5,
+    h2hWinRateB = 0.5,
+    h2hWeight = 0;
+  if (teamA.length === 1 && teamB.length === 1 && teamA[0]?.id && teamB[0]?.id) {
+    const idA = teamA[0].id,
+      idB = teamB[0].id;
+    const h2hMs = lifetime.filter(m => m.winner && (m.playerA === idA && m.playerB === idB || m.playerA === idB && m.playerB === idA));
+    const prior = 3;
+    const winsA = h2hMs.filter(m => m.playerA === idA && m.winner === "A" || m.playerB === idA && m.winner === "B").length;
+    h2hWinRateA = (winsA + prior * 0.5) / (h2hMs.length + prior);
+    h2hWinRateB = 1 - h2hWinRateA;
+    h2hWeight = Math.min(0.60, h2hMs.length / (h2hMs.length + 5) * 0.60);
+  }
+  const leagueWeight = 0.15;
+  const generalWeight = Math.max(0.10, 1 - h2hWeight - leagueWeight);
+  const rawA = generalWeight * avgGenA + leagueWeight * avgLigA + h2hWeight * h2hWinRateA;
+  const rawB = generalWeight * avgGenB + leagueWeight * avgLigB + h2hWeight * h2hWinRateB;
+  const total = rawA + rawB || 1;
+  const probA = rawA / total,
+    probB = rawB / total;
   const margin = 0.10;
   return {
-    oddsA: Math.max(1.01, 1 / (probA * (1 + margin))),
-    oddsB: Math.max(1.01, 1 / (probB * (1 + margin))),
+    oddsA: Math.max(1.01, Math.round(1 / (probA * (1 + margin)) * 100) / 100),
+    oddsB: Math.max(1.01, Math.round(1 / (probB * (1 + margin)) * 100) / 100),
     probA: Math.round(probA * 100),
     probB: Math.round(probB * 100)
   };
@@ -4185,7 +4213,9 @@ function BettingTab({
         textTransform: "uppercase",
         marginBottom: 6
       }
-    }, "Setzer \xB7 ", totalIn.toFixed(2), "\u20AC gesamt"), bettorList.map(b => /*#__PURE__*/React.createElement("div", {
+    }, canCreateBet ? `Setzer · ${totalIn.toFixed(2)}€ gesamt` : `${bettorList.length} Setzer`), canCreateBet ?
+    // Admin sieht alle Details
+    bettorList.map(b => /*#__PURE__*/React.createElement("div", {
       key: b.id,
       style: {
         display: "flex",
@@ -4215,7 +4245,51 @@ function BettingTab({
         color: b.paid ? "#8bc34a" : isOpen ? "var(--gold)" : "#ff8a8a",
         fontWeight: 700
       }
-    }, "\u2192 ", b.payout.toFixed(2), "\u20AC", b.paid ? " ✓" : "")))), isOpen && currentUser && bettingOnId !== bet.id && /*#__PURE__*/React.createElement("button", {
+    }, "\u2192 ", b.payout.toFixed(2), "\u20AC", b.paid ? " ✓" : ""))) :
+    /*#__PURE__*/
+    // Normale User: nur eigene Wette sehen
+    React.createElement(React.Fragment, null, bettorList.filter(b => b.name === currentUser?.name).map(b => /*#__PURE__*/React.createElement("div", {
+      key: b.id,
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: "6px 0",
+        borderBottom: "1px solid rgba(255,255,255,0.04)",
+        fontSize: 13,
+        background: "rgba(240,192,64,0.05)",
+        padding: "8px 6px",
+        borderRadius: 4
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "var(--gold)",
+        marginRight: 8
+      }
+    }, "Du \u2192"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: b.side === "A" ? "#8bc34a" : "#f0c040",
+        fontWeight: 700,
+        flex: 1
+      }
+    }, b.side === "A" ? "▲ " + (bet.playersA || []).map(p => p.name).join('+').split(' ')[0] : "▼ " + (bet.playersB || []).map(p => p.name).join('+').split(' ')[0]), /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--dim)",
+        marginRight: 8
+      }
+    }, b.amount.toFixed(2), "\u20AC"), /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: b.paid ? "#8bc34a" : isOpen ? "var(--gold)" : "#ff8a8a",
+        fontWeight: 700
+      }
+    }, "\u2192 ", b.payout.toFixed(2), "\u20AC", b.paid ? " ✓" : ""))), bettorList.filter(b => b.name === currentUser?.name).length === 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "var(--dim)",
+        fontStyle: "italic"
+      }
+    }, "Du hast noch nicht gewettet."))), isOpen && currentUser && bettingOnId !== bet.id && /*#__PURE__*/React.createElement("button", {
       className: "demo-btn",
       style: {
         width: "100%",
