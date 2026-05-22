@@ -9488,12 +9488,20 @@ function AdminApp({
   const init = initialTournament || {};
   const [tab, setTab] = useState("setup");
 
-  // Viewer dürfen setup nicht sehen — direkt auf groups/ko umleiten
+  // Viewer dürfen setup nicht sehen — nach Mount umleiten
   useEffect(() => {
-    if (!canEditTurnier && tab === "setup") {
+    const user = (() => {
+      try {
+        return JSON.parse(localStorage.getItem("glus_current_user") || "{}");
+      } catch {
+        return {};
+      }
+    })();
+    const r = user.role || "viewer";
+    if (r !== "admin" && r !== "editor" && tab === "setup") {
       setTab("groups");
     }
-  }, [canEditTurnier]);
+  }, []);
   const [champDismissed, setChampDismissed] = useState(false);
   const [lastChampName, setLastChampName] = useState(null);
   const [tournamentName, setTournamentName] = useState(init.name || "Turnier");
