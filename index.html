@@ -9486,14 +9486,14 @@ function AdminApp({
   initialTournament
 }) {
   const init = initialTournament || {};
-  const canEditTurnierInit = ["admin", "editor"].includes((() => {
-    try {
-      return JSON.parse(localStorage.getItem("glus_current_user") || "{}").role || "viewer";
-    } catch {
-      return "viewer";
+  const [tab, setTab] = useState("setup");
+
+  // Viewer dürfen setup nicht sehen — direkt auf groups/ko umleiten
+  useEffect(() => {
+    if (!canEditTurnier && tab === "setup") {
+      setTab("groups");
     }
-  })());
-  const [tab, setTab] = useState(canEditTurnierInit ? "setup" : "groups");
+  }, [canEditTurnier]);
   const [champDismissed, setChampDismissed] = useState(false);
   const [lastChampName, setLastChampName] = useState(null);
   const [tournamentName, setTournamentName] = useState(init.name || "Turnier");
