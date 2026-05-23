@@ -3627,6 +3627,7 @@ function BettingTab({
   maxBet,
   onSetMaxBet
 }) {
+  const isAdminUser = currentUser?.role === "admin"; // Nur Admin sieht alle Setzer-Details
   const [bets, setBets] = useState([]);
   const [accounts, setAccounts] = useState({});
 
@@ -4213,7 +4214,7 @@ function BettingTab({
         textTransform: "uppercase",
         marginBottom: 6
       }
-    }, canCreateBet ? `Setzer · ${totalIn.toFixed(2)}€ gesamt` : `${bettorList.length} Setzer`), canCreateBet ?
+    }, isAdminUser ? `Setzer · ${totalIn.toFixed(2)}€ gesamt` : `${bettorList.length} Setzer · anonym`), isAdminUser ?
     // Admin sieht alle Details
     bettorList.map(b => /*#__PURE__*/React.createElement("div", {
       key: b.id,
@@ -4248,18 +4249,17 @@ function BettingTab({
     }, "\u2192 ", b.payout.toFixed(2), "\u20AC", b.paid ? " ✓" : ""))) :
     /*#__PURE__*/
     // Normale User: nur eigene Wette sehen
-    React.createElement(React.Fragment, null, bettorList.filter(b => b.name === currentUser?.name).map(b => /*#__PURE__*/React.createElement("div", {
+    React.createElement(React.Fragment, null, bettorList.filter(b => b.accountId ? b.accountId === currentUser?.id : b.name === currentUser?.name).map(b => /*#__PURE__*/React.createElement("div", {
       key: b.id,
       style: {
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
-        padding: "6px 0",
-        borderBottom: "1px solid rgba(255,255,255,0.04)",
-        fontSize: 13,
-        background: "rgba(240,192,64,0.05)",
         padding: "8px 6px",
-        borderRadius: 4
+        borderRadius: 4,
+        background: "rgba(240,192,64,0.05)",
+        marginBottom: 4,
+        fontSize: 13
       }
     }, /*#__PURE__*/React.createElement("span", {
       style: {
@@ -4267,13 +4267,13 @@ function BettingTab({
         color: "var(--gold)",
         marginRight: 8
       }
-    }, "Du \u2192"), /*#__PURE__*/React.createElement("span", {
+    }, "Dein Einsatz \u2192"), /*#__PURE__*/React.createElement("span", {
       style: {
         color: b.side === "A" ? "#8bc34a" : "#f0c040",
         fontWeight: 700,
         flex: 1
       }
-    }, b.side === "A" ? "▲ " + (bet.playersA || []).map(p => p.name).join('+').split(' ')[0] : "▼ " + (bet.playersB || []).map(p => p.name).join('+').split(' ')[0]), /*#__PURE__*/React.createElement("span", {
+    }, b.side === "A" ? "▲ " + teamA.split(" + ")[0] : "▼ " + teamB.split(" + ")[0]), /*#__PURE__*/React.createElement("span", {
       style: {
         color: "var(--dim)",
         marginRight: 8
@@ -4283,7 +4283,7 @@ function BettingTab({
         color: b.paid ? "#8bc34a" : isOpen ? "var(--gold)" : "#ff8a8a",
         fontWeight: 700
       }
-    }, "\u2192 ", b.payout.toFixed(2), "\u20AC", b.paid ? " ✓" : ""))), bettorList.filter(b => b.name === currentUser?.name).length === 0 && /*#__PURE__*/React.createElement("div", {
+    }, "\u2192 ", b.payout.toFixed(2), "\u20AC", b.paid ? " ✓" : ""))), bettorList.filter(b => b.accountId ? b.accountId === currentUser?.id : b.name === currentUser?.name).length === 0 && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
         color: "var(--dim)",
