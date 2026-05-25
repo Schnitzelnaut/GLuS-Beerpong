@@ -9517,7 +9517,7 @@ function AdminApp({
   const [share2, setShare2] = useState(init.share2 ?? 30);
   const [share3, setShare3] = useState(init.share3 ?? 20);
   const [numPlayers, setNumPlayers] = useState(init.numPlayers ?? 20);
-  const [numGroups, setNumGroups] = useState(init.numGroups ?? 4);
+  const [numGroups, setNumGroups] = useState(init.numGroups ?? 1);
   const [advPerGroup, setAdvPerGroup] = useState(init.advPerGroup ?? 2);
   const [names, setNames] = useState(init.names || Array(init.numPlayers ?? 20).fill(""));
   const [groups, setGroups] = useState(init.groups || null);
@@ -9921,7 +9921,7 @@ function AdminApp({
       label: tournamentMode === "1v1" ? "Spieler" : "Teams",
       val: numPlayers,
       onDec: () => {
-        const n = Math.max(4, numPlayers - 1);
+        const n = Math.max(2, numPlayers - 1);
         setNumPlayers(n);
         setNames(p => {
           const c = [...p];
@@ -9942,7 +9942,7 @@ function AdminApp({
     }, {
       label: "Gruppen",
       val: numGroups,
-      onDec: () => setNumGroups(g => Math.max(2, g - 1)),
+      onDec: () => setNumGroups(g => Math.max(1, g - 1)),
       onInc: () => setNumGroups(g => Math.min(8, g + 1)),
       unit: "Gruppen"
     }, ...(tournamentFormat === "groups_ko" ? [{
