@@ -8357,9 +8357,11 @@ function LigaApp({
         writeFirebase("liga", merged);
       }
     }
-  }), tab === "settings" && isAdmin && /*#__PURE__*/React.createElement("div", {
+  }), tab === "settings" && currentUser && /*#__PURE__*/React.createElement("div", {
     className: "liga-settings-grid"
-  }, /*#__PURE__*/React.createElement(PushNotificationSettings, null), /*#__PURE__*/React.createElement(AccountManagement, {
+  }, /*#__PURE__*/React.createElement(PushNotificationSettings, null)), tab === "settings" && isAdmin && /*#__PURE__*/React.createElement("div", {
+    className: "liga-settings-grid"
+  }, /*#__PURE__*/React.createElement(AccountManagement, {
     currentUser: currentUser,
     players: players,
     onRoleChange: (userId, newRole) => {
