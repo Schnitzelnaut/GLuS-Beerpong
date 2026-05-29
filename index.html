@@ -11,8 +11,45 @@ const LOGO_URL="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAUAAAAE4CAMAAAAdP9
 const STORAGE_KEY = "glus_turnier_state";
 const LIGA_STORAGE_KEY = "glus_liga_state";
 const ACCOUNTS_FB_PATH = "accounts";
-const BETS_FB_PATH = "bets"; // Wetten separat von Liga-State speichern
+const BETS_FB_PATH = "bets";
+const PUSH_SUBS_PATH = "push_subscriptions";
+const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
+const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
 
+// Push-Subscription in Firebase speichern
+async function savePushSubscription(sub) {
+  const id = btoa(sub.endpoint).slice(0, 32).replace(/[^a-zA-Z0-9]/g, '');
+  await writeFirebase(`${PUSH_SUBS_PATH}/${id}`, {
+    endpoint: sub.endpoint,
+    keys: {
+      p256dh: sub.toJSON().keys.p256dh,
+      auth: sub.toJSON().keys.auth
+    },
+    savedAt: Date.now()
+  });
+}
+async function removePushSubscription(sub) {
+  const id = btoa(sub.endpoint).slice(0, 32).replace(/[^a-zA-Z0-9]/g, '');
+  await writeFirebase(`${PUSH_SUBS_PATH}/${id}`, null);
+}
+
+// Benachrichtigung an Worker schicken
+async function sendNotification(type, data) {
+  try {
+    await fetch(`${PUSH_WORKER_URL}/notify`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        type,
+        data
+      })
+    });
+  } catch (e) {
+    console.warn('Push failed:', e);
+  }
+}
 async function writeBet(bet) {
   return writeFirebase(`${BETS_FB_PATH}/${bet.id}`, bet);
 }
@@ -3120,6 +3157,129 @@ function AccountModal({
     onClick: screen === "login" ? handleLogin : handleRegister
   }, loading ? "..." : screen === "login" ? "Anmelden" : "Registrieren"))));
 }
+
+// ─── PUSH NOTIFICATIONS ──────────────────────────────────────────────────────
+
+function PushNotificationSettings() {
+  const [status, setStatus] = useState('loading'); // loading | unsupported | denied | granted | default
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      setStatus('unsupported');
+      return;
+    }
+    setStatus(Notification.permission);
+  }, []);
+  async function subscribe() {
+    setLoading(true);
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') {
+        setStatus('denied');
+        setLoading(false);
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      const existing = await reg.pushManager.getSubscription();
+      if (existing) await existing.unsubscribe();
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      });
+      await savePushSubscription(sub);
+      setStatus('granted');
+    } catch (e) {
+      console.error('Push subscribe error:', e);
+    }
+    setLoading(false);
+  }
+  async function unsubscribe() {
+    setLoading(true);
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        await removePushSubscription(sub);
+        await sub.unsubscribe();
+      }
+      setStatus('default');
+    } catch (e) {
+      console.error('Push unsubscribe error:', e);
+    }
+    setLoading(false);
+  }
+  if (status === 'unsupported') return null;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "\uD83D\uDD14 Push-Benachrichtigungen"), status === 'loading' && /*#__PURE__*/React.createElement("div", {
+    className: "liga-empty"
+  }, "L\xE4dt..."), status === 'denied' && /*#__PURE__*/React.createElement("div", {
+    className: "info-box",
+    style: {
+      color: "#ff8a8a"
+    }
+  }, "Benachrichtigungen wurden blockiert. Bitte in den Browser-Einstellungen erlauben und neu laden."), status === 'granted' && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 10,
+      height: 10,
+      borderRadius: "50%",
+      background: "#8bc34a",
+      flexShrink: 0
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14,
+      color: "#8bc34a",
+      fontWeight: 700
+    }
+  }, "Aktiviert")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--dim)",
+      marginBottom: 12,
+      lineHeight: 1.5
+    }
+  }, "Du bekommst Benachrichtigungen f\xFCr:", /*#__PURE__*/React.createElement("br", null), "\uD83C\uDFB0 Neue Wetten \xB7 \uD83C\uDFC6 Wettabrechnung \xB7 \u2694\uFE0F Neue Spiele \xB7 \uD83C\uDFDF\uFE0F Neue Saison"), /*#__PURE__*/React.createElement("button", {
+    className: "demo-btn",
+    style: {
+      color: "#ff8a8a",
+      borderColor: "#ff8a8a"
+    },
+    disabled: loading,
+    onClick: unsubscribe
+  }, loading ? "..." : "🔕 Deaktivieren")), (status === 'default' || status === 'unsupported') && status !== 'unsupported' && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: "var(--dim)",
+      marginBottom: 12,
+      lineHeight: 1.5
+    }
+  }, "Erhalte Benachrichtigungen f\xFCr neue Wetten, Spielergebnisse und mehr \u2014 auch wenn die App geschlossen ist."), /*#__PURE__*/React.createElement("button", {
+    className: "big-btn",
+    style: {
+      margin: 0
+    },
+    disabled: loading,
+    onClick: subscribe
+  }, loading ? "..." : "🔔 Benachrichtigungen aktivieren")));
+}
+
+// Base64url → Uint8Array (für VAPID key)
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+}
 function AccountManagement({
   currentUser,
   onRoleChange,
@@ -3702,6 +3862,11 @@ function BettingTab({
     setSlotsB(['', '', '', '', '']);
     setTeamSize(1);
     setCreating(false);
+    // 🔔 Push: Neue Wette
+    sendNotification('new_bet', {
+      teamA: pA.map(p => p.name).join(' + '),
+      teamB: pB.map(p => p.name).join(' + ')
+    });
   }
   async function placeBet(betId) {
     const amount = parseFloat(betAmount);
@@ -3780,6 +3945,11 @@ function BettingTab({
       }]))
     });
     setSettling(null);
+    // 🔔 Push: Wette abgerechnet
+    const winnerTeam = winner === 'A' ? (bet.playersA || []).map(p => p.name).join(' + ') : (bet.playersB || []).map(p => p.name).join(' + ');
+    sendNotification('bet_settled', {
+      winner: winnerTeam
+    });
   }
   async function handleDeleteBet(betId) {
     const bet = bets.find(b => b.id === betId);
@@ -5895,6 +6065,15 @@ function LigaApp({
     setMatchWinner(null);
     setMatchTollpatschA(false);
     setMatchTollpatschB(false);
+    // 🔔 Push: Neues Spiel
+    const pA = players.find(p => p.id === matchPlayerA),
+      pB = players.find(p => p.id === matchPlayerB);
+    if (pA && pB) sendNotification('new_match', {
+      playerA: pA.name,
+      cupsA: parseInt(matchCupsA) || 0,
+      playerB: pB.name,
+      cupsB: parseInt(matchCupsB) || 0
+    });
   }
   function deleteMatch(id) {
     if (!canEdit) return;
@@ -6151,6 +6330,10 @@ function LigaApp({
       hallOfFame: newHof
     });
     setConfirmAction(null);
+    // 🔔 Push: Neue Saison
+    sendNotification('new_season', {
+      seasonName: newName
+    });
   }
   function deleteArchiveEntry(idx) {
     if (!isAdmin) return;
@@ -8176,7 +8359,7 @@ function LigaApp({
     }
   }), tab === "settings" && isAdmin && /*#__PURE__*/React.createElement("div", {
     className: "liga-settings-grid"
-  }, /*#__PURE__*/React.createElement(AccountManagement, {
+  }, /*#__PURE__*/React.createElement(PushNotificationSettings, null), /*#__PURE__*/React.createElement(AccountManagement, {
     currentUser: currentUser,
     players: players,
     onRoleChange: (userId, newRole) => {
