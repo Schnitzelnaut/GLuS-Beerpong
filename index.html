@@ -2997,14 +2997,19 @@ function ChangePasswordCard({
       return;
     }
     setLoading(true);
-    const accounts = await fetchAllAccounts();
-    const acc = accounts ? Object.values(accounts).find(a => a.id === currentUser.id) : null;
-    if (!acc || acc.passwordHash !== hashPw(oldPw)) {
+    // Direkt den Account per ID laden
+    const acc = await fetchFirebase(`${ACCOUNTS_FB_PATH}/${currentUser.id}`);
+    if (!acc) {
+      setError("Account nicht gefunden.");
+      setLoading(false);
+      return;
+    }
+    if (acc.passwordHash !== hashPw(oldPw)) {
       setError("Altes Passwort falsch.");
       setLoading(false);
       return;
     }
-    await writeFirebase(`accounts/${currentUser.id}/passwordHash`, hashPw(newPw));
+    await writeFirebase(`${ACCOUNTS_FB_PATH}/${currentUser.id}/passwordHash`, hashPw(newPw));
     setSuccess(true);
     setOldPw("");
     setNewPw("");
