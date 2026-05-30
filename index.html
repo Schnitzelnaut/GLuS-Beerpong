@@ -2981,15 +2981,6 @@ function ChangePasswordCard({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
-  function hashPw(pw) {
-    let hash = 0;
-    const str = pw + 'GLuS_2026_salt';
-    for (let i = 0; i < str.length; i++) {
-      hash = (hash << 5) - hash + str.charCodeAt(i);
-      hash = hash & hash;
-    }
-    return Math.abs(hash).toString(36);
-  }
   async function changePassword() {
     setError("");
     setSuccess(false);
@@ -3468,14 +3459,7 @@ function AdminPasswordResets() {
     };
   }, []);
   async function doReset(reset) {
-    const tempPw = 'glus1234';
-    let h = 0;
-    const str = tempPw + 'GLuS_2026_salt';
-    for (let i = 0; i < str.length; i++) {
-      h = (h << 5) - h + str.charCodeAt(i);
-      h = h & h;
-    }
-    const hash = Math.abs(h).toString(36);
+    const hash = hashPw('glus1234');
     await writeFirebase(`accounts/${reset.userId}/passwordHash`, hash);
     await writeFirebase(`password_resets/${reset.userId}/done`, true);
     setDone(d => [...d, reset.userId]);
