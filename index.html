@@ -3453,13 +3453,15 @@ function PasswordResetRequest({
 }
 function AdminPasswordResets() {
   const [resets, setResets] = useState([]);
+  const [confirming, setConfirming] = useState(null);
+  const [done, setDone] = useState([]);
   useEffect(() => {
     const es = subscribeFirebase('password_resets', data => {
       if (!data) {
         setResets([]);
         return;
       }
-      setResets(Object.values(data).filter(r => !r.done).sort((a, b) => b.requestedAt - a.requestedAt));
+      setResets(Object.values(data).sort((a, b) => b.requestedAt - a.requestedAt));
     });
     return () => {
       if (es) es.close();
@@ -3467,41 +3469,46 @@ function AdminPasswordResets() {
   }, []);
   async function doReset(reset) {
     const tempPw = 'glus1234';
-    const hash = (() => {
-      let h = 0;
-      const str = tempPw + 'GLuS_2026_salt';
-      for (let i = 0; i < str.length; i++) {
-        h = (h << 5) - h + str.charCodeAt(i);
-        h = h & h;
-      }
-      return Math.abs(h).toString(36);
-    })();
+    let h = 0;
+    const str = tempPw + 'GLuS_2026_salt';
+    for (let i = 0; i < str.length; i++) {
+      h = (h << 5) - h + str.charCodeAt(i);
+      h = h & h;
+    }
+    const hash = Math.abs(h).toString(36);
     await writeFirebase(`accounts/${reset.userId}/passwordHash`, hash);
-    await writeFirebase(`password_resets/${reset.userId}`, {
-      ...reset,
-      done: true
-    });
+    await writeFirebase(`password_resets/${reset.userId}/done`, true);
+    setDone(d => [...d, reset.userId]);
+    setConfirming(null);
   }
-  if (resets.length === 0) return null;
+  const pending = resets.filter(r => !r.done && !done.includes(r.userId));
   return /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
-      borderColor: "#f0c040"
+      borderColor: pending.length > 0 ? "#f0c040" : "var(--border)"
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "card-title"
-  }, "\uD83D\uDD11 Passwort-Reset Anfragen"), resets.map(r => /*#__PURE__*/React.createElement("div", {
+  }, "\uD83D\uDD11 Passwort-Reset Anfragen"), pending.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: "var(--dim)"
+    }
+  }, "Keine offenen Anfragen.") : pending.map(r => /*#__PURE__*/React.createElement("div", {
     key: r.userId,
     style: {
       display: "flex",
       justifyContent: "space-between",
       alignItems: "center",
       padding: "10px 0",
-      borderBottom: "1px solid var(--border)"
+      borderBottom: "1px solid var(--border)",
+      gap: 8,
+      flexWrap: "wrap"
     }
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontWeight: 700
+      fontWeight: 700,
+      fontSize: 14
     }
   }, r.name), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -3513,12 +3520,57 @@ function AdminPasswordResets() {
     style: {
       margin: 0,
       padding: "8px 14px",
-      fontSize: 13
+      fontSize: 13,
+      background: "#f0c040",
+      color: "#0e1a0e"
     },
-    onClick: () => {
-      if (window.confirm(`Passwort von ${r.name} auf "glus1234" zurücksetzen?`)) doReset(r);
+    onClick: () => setConfirming(r)
+  }, "\uD83D\uDD11 Reset"))), confirming && /*#__PURE__*/React.createElement("div", {
+    className: "confirm-modal",
+    onClick: e => e.target === e.currentTarget && setConfirming(null)
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "confirm-card",
+    style: {
+      textAlign: "center",
+      maxWidth: 320
     }
-  }, "\u2713 Reset \u2192 glus1234"))));
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 36,
+      marginBottom: 8
+    }
+  }, "\uD83D\uDD11"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "'Permanent Marker',cursive",
+      fontSize: 20,
+      color: "var(--gold)",
+      marginBottom: 8
+    }
+  }, confirming.name), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: "var(--dim)",
+      marginBottom: 20
+    }
+  }, "Passwort wird auf ", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: "#fff"
+    }
+  }, "glus1234"), " zur\xFCckgesetzt."), /*#__PURE__*/React.createElement("div", {
+    className: "confirm-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "demo-btn",
+    onClick: () => setConfirming(null)
+  }, "Abbrechen"), /*#__PURE__*/React.createElement("button", {
+    className: "big-btn",
+    style: {
+      margin: 0,
+      maxWidth: 160,
+      background: "#f0c040",
+      color: "#0e1a0e"
+    },
+    onClick: () => doReset(confirming)
+  }, "\u2713 Best\xE4tigen")))));
 }
 function PushNotificationSettings() {
   const [status, setStatus] = useState('loading'); // loading | unsupported | denied | granted | default
