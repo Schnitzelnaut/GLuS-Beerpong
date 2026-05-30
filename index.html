@@ -3447,6 +3447,42 @@ function PasswordResetRequest({
     onClick: requestReset
   }, loading ? "..." : "🔑 Reset anfragen"));
 }
+function GartenRuftButton() {
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
+  async function rufen() {
+    setLoading(true);
+    await sendNotification('garten', {});
+    setSent(true);
+    setLoading(false);
+    setTimeout(() => setSent(false), 3000);
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card",
+    style: {
+      borderColor: "#4caf50"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "\uD83C\uDF3F Garten ruft!"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: "var(--dim)",
+      marginBottom: 14,
+      lineHeight: 1.5
+    }
+  }, "Schickt eine Push-Benachrichtigung an alle die \"Garten ruft\" aktiviert haben."), /*#__PURE__*/React.createElement("button", {
+    className: "big-btn",
+    style: {
+      margin: 0,
+      width: "100%",
+      background: sent ? "#8bc34a" : "",
+      color: sent ? "#0e1a0e" : ""
+    },
+    disabled: loading,
+    onClick: rufen
+  }, loading ? "Wird gesendet..." : sent ? "✓ Gesendet!" : "🌿 Garten ruft an!"));
+}
 function AdminPasswordResets() {
   const [resets, setResets] = useState([]);
   const [confirming, setConfirming] = useState(null);
@@ -3562,15 +3598,43 @@ function AdminPasswordResets() {
   }, "\u2713 Best\xE4tigen")))));
 }
 function PushNotificationSettings() {
-  const [status, setStatus] = useState('loading'); // loading | unsupported | denied | granted | default
+  const [status, setStatus] = useState('loading');
   const [loading, setLoading] = useState(false);
+  const [subId, setSubId] = useState(null);
+  const [prefs, setPrefs] = useState({
+    new_bet: true,
+    bet_settled: true,
+    new_match: true,
+    new_season: true,
+    garten: true
+  });
+  const PREF_LABELS = {
+    new_bet: '🎰 Neue Wette erstellt',
+    bet_settled: '🏆 Wette abgerechnet',
+    new_match: '⚔️ Neues Spiel eingetragen',
+    new_season: '🏟️ Neue Saison gestartet',
+    garten: '🌿 Garten ruft!'
+  };
   useEffect(() => {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
       setStatus('unsupported');
       return;
     }
     setStatus(Notification.permission);
+    // Gespeicherte Prefs laden
+    navigator.serviceWorker.ready.then(reg => reg.pushManager.getSubscription().then(sub => {
+      if (sub) {
+        const id = btoa(sub.endpoint).slice(0, 32).replace(/[^a-zA-Z0-9]/g, '');
+        setSubId(id);
+        fetchFirebase(`${PUSH_SUBS_PATH}/${id}/prefs`).then(p => {
+          if (p) setPrefs(p);
+        });
+      }
+    }));
   }, []);
+  async function getSubId(sub) {
+    return btoa(sub.endpoint).slice(0, 32).replace(/[^a-zA-Z0-9]/g, '');
+  }
   async function subscribe() {
     setLoading(true);
     try {
@@ -3587,10 +3651,20 @@ function PushNotificationSettings() {
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
       });
-      await savePushSubscription(sub);
+      const id = await getSubId(sub);
+      setSubId(id);
+      await writeFirebase(`${PUSH_SUBS_PATH}/${id}`, {
+        endpoint: sub.endpoint,
+        keys: {
+          p256dh: sub.toJSON().keys.p256dh,
+          auth: sub.toJSON().keys.auth
+        },
+        savedAt: Date.now(),
+        prefs
+      });
       setStatus('granted');
     } catch (e) {
-      console.error('Push subscribe error:', e);
+      console.error(e);
     }
     setLoading(false);
   }
@@ -3600,14 +3674,24 @@ function PushNotificationSettings() {
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.getSubscription();
       if (sub) {
-        await removePushSubscription(sub);
+        const id = await getSubId(sub);
+        await writeFirebase(`${PUSH_SUBS_PATH}/${id}`, null);
         await sub.unsubscribe();
       }
+      setSubId(null);
       setStatus('default');
     } catch (e) {
-      console.error('Push unsubscribe error:', e);
+      console.error(e);
     }
     setLoading(false);
+  }
+  async function togglePref(key) {
+    const newPrefs = {
+      ...prefs,
+      [key]: !prefs[key]
+    };
+    setPrefs(newPrefs);
+    if (subId) await writeFirebase(`${PUSH_SUBS_PATH}/${subId}/prefs`, newPrefs);
   }
   if (status === 'unsupported') return null;
   return /*#__PURE__*/React.createElement("div", {
@@ -3617,61 +3701,96 @@ function PushNotificationSettings() {
   }, "\uD83D\uDD14 Push-Benachrichtigungen"), status === 'loading' && /*#__PURE__*/React.createElement("div", {
     className: "liga-empty"
   }, "L\xE4dt..."), status === 'denied' && /*#__PURE__*/React.createElement("div", {
-    className: "info-box",
     style: {
-      color: "#ff8a8a"
+      color: "#ff8a8a",
+      fontSize: 13
     }
-  }, "Benachrichtigungen wurden blockiert. Bitte in den Browser-Einstellungen erlauben und neu laden."), status === 'granted' && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, "Blockiert \u2014 bitte in den Browser-Einstellungen erlauben."), status === 'granted' && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
-      gap: 10,
-      marginBottom: 12
+      gap: 8,
+      marginBottom: 14
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      width: 10,
-      height: 10,
+      width: 8,
+      height: 8,
       borderRadius: "50%",
-      background: "#8bc34a",
-      flexShrink: 0
+      background: "#8bc34a"
     }
   }), /*#__PURE__*/React.createElement("span", {
     style: {
-      fontSize: 14,
+      fontSize: 13,
       color: "#8bc34a",
       fontWeight: 700
     }
   }, "Aktiviert")), /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 12,
-      color: "var(--dim)",
-      marginBottom: 12,
-      lineHeight: 1.5
+      marginBottom: 14
     }
-  }, "Du bekommst Benachrichtigungen f\xFCr:", /*#__PURE__*/React.createElement("br", null), "\uD83C\uDFB0 Neue Wetten \xB7 \uD83C\uDFC6 Wettabrechnung \xB7 \u2694\uFE0F Neue Spiele \xB7 \uD83C\uDFDF\uFE0F Neue Saison"), /*#__PURE__*/React.createElement("button", {
+  }, Object.entries(PREF_LABELS).map(([key, label]) => /*#__PURE__*/React.createElement("div", {
+    key: key,
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      padding: "10px 0",
+      borderBottom: "1px solid rgba(255,255,255,0.05)"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      color: prefs[key] ? "var(--text)" : "var(--dim)"
+    }
+  }, label), /*#__PURE__*/React.createElement("div", {
+    onClick: () => togglePref(key),
+    style: {
+      width: 44,
+      height: 24,
+      borderRadius: 12,
+      background: prefs[key] ? "#8bc34a" : "rgba(255,255,255,0.1)",
+      cursor: "pointer",
+      position: "relative",
+      transition: "background 0.2s",
+      flexShrink: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      top: 3,
+      left: prefs[key] ? 22 : 3,
+      width: 18,
+      height: 18,
+      borderRadius: "50%",
+      background: "#fff",
+      transition: "left 0.2s"
+    }
+  }))))), /*#__PURE__*/React.createElement("button", {
     className: "demo-btn",
     style: {
       color: "#ff8a8a",
-      borderColor: "#ff8a8a"
+      borderColor: "#ff8a8a",
+      width: "100%"
     },
     disabled: loading,
     onClick: unsubscribe
-  }, loading ? "..." : "🔕 Deaktivieren")), (status === 'default' || status === 'unsupported') && status !== 'unsupported' && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, loading ? "..." : "🔕 Deaktivieren")), status === 'default' && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: "var(--dim)",
       marginBottom: 12,
       lineHeight: 1.5
     }
-  }, "Erhalte Benachrichtigungen f\xFCr neue Wetten, Spielergebnisse und mehr \u2014 auch wenn die App geschlossen ist."), /*#__PURE__*/React.createElement("button", {
+  }, "Erhalte Benachrichtigungen f\xFCr Wetten, Spiele und mehr \u2014 auch wenn die App geschlossen ist."), /*#__PURE__*/React.createElement("button", {
     className: "big-btn",
     style: {
-      margin: 0
+      margin: 0,
+      width: "100%"
     },
     disabled: loading,
     onClick: subscribe
-  }, loading ? "..." : "🔔 Benachrichtigungen aktivieren")));
+  }, loading ? "..." : "🔔 Aktivieren")));
 }
 
 // Base64url → Uint8Array (für VAPID key)
@@ -8766,7 +8885,7 @@ function LigaApp({
     currentUser: currentUser
   })), tab === "settings" && isAdmin && /*#__PURE__*/React.createElement("div", {
     className: "liga-settings-grid"
-  }, /*#__PURE__*/React.createElement(AdminPasswordResets, null), /*#__PURE__*/React.createElement(AccountManagement, {
+  }, /*#__PURE__*/React.createElement(AdminPasswordResets, null), /*#__PURE__*/React.createElement(GartenRuftButton, null), /*#__PURE__*/React.createElement(AccountManagement, {
     currentUser: currentUser,
     players: players,
     onRoleChange: (userId, newRole) => {
