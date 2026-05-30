@@ -1612,15 +1612,25 @@ function shuffle(arr) {
   }
   return a;
 }
-function generateMatches(n) {
+function generateMatches(n, withRematch = false) {
   const matches = [];
-  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) matches.push({
-    a: i,
-    b: j,
-    cupsA: 0,
-    cupsB: 0,
-    winner: null
-  });
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+    matches.push({
+      a: i,
+      b: j,
+      cupsA: 0,
+      cupsB: 0,
+      winner: null
+    });
+    if (withRematch) matches.push({
+      a: j,
+      b: i,
+      cupsA: 0,
+      cupsB: 0,
+      winner: null,
+      isRematch: true
+    });
+  }
   return matches;
 }
 function getStandings(group, advPerGroup) {
@@ -10227,6 +10237,7 @@ function AdminApp({
   const [share3, setShare3] = useState(init.share3 ?? 20);
   const [numPlayers, setNumPlayers] = useState(init.numPlayers ?? 20);
   const [numGroups, setNumGroups] = useState(init.numGroups ?? 1);
+  const [withRematch, setWithRematch] = useState(init.withRematch ?? false);
   const [advPerGroup, setAdvPerGroup] = useState(init.advPerGroup ?? 2);
   const [names, setNames] = useState(init.names || Array(init.numPlayers ?? 20).fill(""));
   const [groups, setGroups] = useState(init.groups || null);
@@ -10282,6 +10293,7 @@ function AdminApp({
     if (data.share3 !== undefined) setShare3(data.share3);
     if (data.numPlayers !== undefined) setNumPlayers(data.numPlayers);
     if (data.numGroups !== undefined) setNumGroups(data.numGroups);
+    if (data.withRematch !== undefined) setWithRematch(data.withRematch);
     if (data.advPerGroup !== undefined) setAdvPerGroup(data.advPerGroup);
     if (data.names !== undefined) setNames(data.names);
     if (data.groups !== undefined) setGroups(data.groups);
@@ -10307,6 +10319,7 @@ function AdminApp({
       numPlayers,
       numGroups,
       advPerGroup,
+      withRematch,
       names,
       groups,
       koMatches
@@ -10432,7 +10445,7 @@ function AdminApp({
     }, (_, gi) => ({
       name: String.fromCharCode(65 + gi),
       teams: shuffled.slice(gi * ppg, (gi + 1) * ppg),
-      matches: generateMatches(ppg)
+      matches: generateMatches(ppg, withRematch)
     }));
     setGroups(gs);
     setKoMatches(null);
@@ -10707,7 +10720,39 @@ function AdminApp({
       className: "step-btn",
       onClick: onInc
     }, "+"))));
-  })()), /*#__PURE__*/React.createElement("div", {
+  })(), tournamentFormat !== "ko_only" && /*#__PURE__*/React.createElement("div", {
+    className: "param-row"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "param-label"
+  }, "R\xFCckspiel"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--dim)"
+    }
+  }, "Jedes Paar spielt Hin- & R\xFCckspiel")), /*#__PURE__*/React.createElement("div", {
+    onClick: () => setWithRematch(r => !r),
+    style: {
+      width: 44,
+      height: 24,
+      borderRadius: 12,
+      background: withRematch ? "#8bc34a" : "rgba(255,255,255,0.1)",
+      cursor: "pointer",
+      position: "relative",
+      transition: "background 0.2s",
+      flexShrink: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      top: 3,
+      left: withRematch ? 22 : 3,
+      width: 18,
+      height: 18,
+      borderRadius: "50%",
+      background: "#fff",
+      transition: "left 0.2s"
+    }
+  })))), /*#__PURE__*/React.createElement("div", {
     className: "card"
   }, /*#__PURE__*/React.createElement("div", {
     className: "card-title"
@@ -10868,7 +10913,17 @@ function AdminApp({
       return /*#__PURE__*/React.createElement("div", {
         className: "match-row",
         key: mi
-      }, /*#__PURE__*/React.createElement("div", {
+      }, m.isRematch && /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 10,
+          color: "var(--gold)",
+          fontFamily: "'Barlow Condensed',sans-serif",
+          letterSpacing: 1.5,
+          textTransform: "uppercase",
+          gridColumn: "1/-1",
+          marginBottom: 2
+        }
+      }, "\u21A9 R\xFCckspiel"), /*#__PURE__*/React.createElement("div", {
         className: `match-team-name${m.winner === "A" ? " winner-name" : ""}`
       }, tA), /*#__PURE__*/React.createElement("div", {
         className: "match-center"
