@@ -10323,6 +10323,8 @@ function AdminApp({
 }) {
   const init = initialTournament || {};
   const [tab, setTab] = useState("setup");
+  const [ligaPlayersState] = useState(() => loadLiga()?.players || []);
+  const players = Array.isArray(ligaPlayersState) ? ligaPlayersState : Object.values(ligaPlayersState || {});
 
   // Viewer dürfen setup nicht sehen — nach Mount umleiten
   useEffect(() => {
@@ -10567,7 +10569,10 @@ function AdminApp({
     const filled = safeNamesArr.slice(0, numPlayers).map((n, i) => (n || "").trim() || `${label} ${i + 1}`);
     let ordered;
     if (withSeeding && numGroups > 1) {
-      const allMatchesEver = [...(matches || []), ...(archive || []).flatMap(a => a.matches || [])];
+      const ligaData = loadLiga() || {};
+      const ligaMatches = Array.isArray(ligaData.matches) ? ligaData.matches : Object.values(ligaData.matches || {});
+      const ligaArchive = Array.isArray(ligaData.archive) ? ligaData.archive : Object.values(ligaData.archive || {});
+      const allMatchesEver = [...ligaMatches, ...ligaArchive.flatMap(a => Array.isArray(a.matches) ? a.matches : Object.values(a.matches || {}))];
       const allStats = calcAllPlayerStats(players || [], allMatchesEver);
       const statById = Object.fromEntries(allStats.map(s => [s.id, s]));
       const statByName = Object.fromEntries(allStats.map(s => [s.name, s]));
