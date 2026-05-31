@@ -15,7 +15,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v99";
+const APP_VERSION = "glus-v100";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -10457,12 +10457,10 @@ function TeamNameRow({
     style: {
       fontSize: 13
     },
-    value: tp[s]?.id || (tp[s]?.id === null ? "__custom__" : ""),
+    value: tp[s]?.id || "",
     onChange: e => {
       if (!e.target.value) {
-        updateSlot(s, undefined, "");
-      } else if (e.target.value === "__custom__") {
-        updateSlot(s, null, "");
+        updateSlot(s, null, tp[s]?.name || "");
       } else {
         const p = (players || []).find(x => x.id === e.target.value);
         if (p) updateSlot(s, p.id, p.name);
@@ -10470,21 +10468,18 @@ function TeamNameRow({
     }
   }, /*#__PURE__*/React.createElement("option", {
     value: ""
-  }, "\u2014 Spieler ", s + 1, " \u2014"), (players || []).map(p => /*#__PURE__*/React.createElement("option", {
+  }, "\u270F\uFE0F Eigener Name"), (players || []).map(p => /*#__PURE__*/React.createElement("option", {
     key: p.id,
     value: p.id,
     disabled: usedIds.includes(p.id) && tp[s]?.id !== p.id
-  }, p.name)), /*#__PURE__*/React.createElement("option", {
-    value: "__custom__"
-  }, "\u270F\uFE0F Eigener Name")), tp[s]?.id === null && /*#__PURE__*/React.createElement("input", {
+  }, p.name))), !tp[s]?.id && /*#__PURE__*/React.createElement("input", {
     className: "liga-add-input",
     style: {
       fontSize: 13
     },
     placeholder: `Name eingeben...`,
     value: tp[s]?.name || "",
-    onChange: e => updateSlot(s, null, e.target.value),
-    autoFocus: true
+    onChange: e => updateSlot(s, null, e.target.value)
   })))));
 }
 function AdminApp({
@@ -11272,7 +11267,7 @@ function AdminApp({
         // 2v2: Durchschnitt der ausgewählten Spieler-Stats
         const tp = Array.isArray(safeTp[idx]) ? safeTp[idx] : [];
         const scores = tp.filter(p => p && (p.id || p.name)).map(p => {
-          const s = p.id ? statById[p.id] : statByName[p.name];
+          const s = p.id && statById[p.id] ? statById[p.id] : statByName[p.name];
           return s && s.games > 0 ? s.winRate : null;
         }).filter(s => s !== null);
         if (scores.length > 0) score = scores.reduce((a, b) => a + b, 0) / scores.length;
