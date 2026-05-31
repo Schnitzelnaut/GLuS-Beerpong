@@ -10238,8 +10238,10 @@ function AdminApp({
   const [numPlayers, setNumPlayers] = useState(init.numPlayers ?? 20);
   const [numGroups, setNumGroups] = useState(init.numGroups ?? 1);
   const [withRematch, setWithRematch] = useState(init.withRematch ?? false);
+  const [withSeeding, setWithSeeding] = useState(init.withSeeding ?? false);
   const [advPerGroup, setAdvPerGroup] = useState(init.advPerGroup ?? 2);
   const [names, setNames] = useState(init.names || Array(init.numPlayers ?? 20).fill(""));
+  const [teamPlayers, setTeamPlayers] = useState(init.teamPlayers || []); // [{id,name}[]] per team slot
   const [groups, setGroups] = useState(init.groups || null);
   const [koMatches, setKoMatches] = useState(init.koMatches || null);
   const [editSeeding, setEditSeeding] = useState(false);
@@ -10294,8 +10296,10 @@ function AdminApp({
     if (data.numPlayers !== undefined) setNumPlayers(data.numPlayers);
     if (data.numGroups !== undefined) setNumGroups(data.numGroups);
     if (data.withRematch !== undefined) setWithRematch(data.withRematch);
+    if (data.withSeeding !== undefined) setWithSeeding(data.withSeeding);
     if (data.advPerGroup !== undefined) setAdvPerGroup(data.advPerGroup);
     if (data.names !== undefined) setNames(data.names);
+    if (data.teamPlayers !== undefined) setTeamPlayers(data.teamPlayers);
     if (data.groups !== undefined) setGroups(data.groups);
     if (data.koMatches !== undefined) setKoMatches(data.koMatches);
   }
@@ -10320,7 +10324,9 @@ function AdminApp({
       numGroups,
       advPerGroup,
       withRematch,
+      withSeeding,
       names,
+      teamPlayers,
       groups,
       koMatches
     };
@@ -10424,13 +10430,49 @@ function AdminApp({
   function generate() {
     const label = tournamentMode === "1v1" ? "Spieler" : "Team";
     const filled = names.slice(0, numPlayers).map((n, i) => n.trim() || `${label} ${i + 1}`);
-    const shuffled = shuffle(filled);
+    let ordered;
+    if (withSeeding && numGroups > 1) {
+      const allMatchesEver = [...matches, ...(archive || []).flatMap(a => a.matches || [])];
+      const allStats = calcAllPlayerStats(players, allMatchesEver);
+      const statById = Object.fromEntries(allStats.map(s => [s.id, s]));
+      const statByName = Object.fromEntries(allStats.map(s => [s.name, s]));
+
+      // Berechne Score pro Team
+      function teamScore(idx) {
+        const name = filled[idx];
+        if (tournamentMode === "1v1") {
+          // 1v1: Score direkt per Name
+          const s = statByName[name];
+          return s && s.games > 0 ? s.winRate : -1;
+        } else {
+          // 2v2+: Durchschnitt der ausgewählten Spieler
+          const tp = teamPlayers[idx];
+          if (!tp || tp.length === 0) return -1;
+          const scores = tp.map(p => p.id ? statById[p.id] : statByName[p.name]).filter(Boolean).map(s => s.games > 0 ? s.winRate : 0.5);
+          return scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : -1;
+        }
+      }
+      const indices = filled.map((_, i) => i);
+      const seeded = indices.filter(i => teamScore(i) >= 0).sort((a, b) => teamScore(b) - teamScore(a)).slice(0, numGroups);
+      const rest = shuffle(indices.filter(i => !seeded.includes(i)));
+      const slots = Array.from({
+        length: numGroups
+      }, (_, gi) => [filled[seeded[gi]]].filter(Boolean));
+      let ri = 0;
+      for (let slot = 1; slot < ppg; slot++) {
+        const groupOrder = shuffle([...Array(numGroups).keys()]);
+        for (const gi of groupOrder) {
+          if (ri < rest.length) slots[gi].push(filled[rest[ri++]]);
+        }
+      }
+      ordered = slots.flat();
+    } else {
+      ordered = shuffle(filled);
+    }
     if (tournamentFormat === "ko_only") {
-      // Build KO directly from players
       const koSizeDirect = Math.pow(2, Math.ceil(Math.log2(Math.max(2, numPlayers))));
       const koRoundsDirect = Math.log2(koSizeDirect);
-      // Create dummy groups so buildKOMatches works (1 team per "group" = direct seeding)
-      const fakePlayers = shuffled.map(name => ({
+      const fakePlayers = ordered.map(name => ({
         name
       }));
       const ms = buildKOMatchesDirect(fakePlayers, koSizeDirect, koRoundsDirect);
@@ -10444,7 +10486,7 @@ function AdminApp({
       length: numGroups
     }, (_, gi) => ({
       name: String.fromCharCode(65 + gi),
-      teams: shuffled.slice(gi * ppg, (gi + 1) * ppg),
+      teams: ordered.slice(gi * ppg, (gi + 1) * ppg),
       matches: generateMatches(ppg, withRematch)
     }));
     setGroups(gs);
@@ -10752,6 +10794,38 @@ function AdminApp({
       background: "#fff",
       transition: "left 0.2s"
     }
+  }))), tournamentFormat !== "ko_only" && numGroups > 1 && /*#__PURE__*/React.createElement("div", {
+    className: "param-row"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "param-label"
+  }, "Setzliste"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--dim)"
+    }
+  }, "Beste Liga-Spieler in verschiedene Gruppen")), /*#__PURE__*/React.createElement("div", {
+    onClick: () => setWithSeeding(s => !s),
+    style: {
+      width: 44,
+      height: 24,
+      borderRadius: 12,
+      background: withSeeding ? "#f0c040" : "rgba(255,255,255,0.1)",
+      cursor: "pointer",
+      position: "relative",
+      transition: "background 0.2s",
+      flexShrink: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      top: 3,
+      left: withSeeding ? 22 : 3,
+      width: 18,
+      height: 18,
+      borderRadius: "50%",
+      background: "#fff",
+      transition: "left 0.2s"
+    }
   })))), /*#__PURE__*/React.createElement("div", {
     className: "card"
   }, /*#__PURE__*/React.createElement("div", {
@@ -10783,21 +10857,123 @@ function AdminApp({
     className: "input-list"
   }, Array.from({
     length: numPlayers
-  }).map((_, i) => /*#__PURE__*/React.createElement("div", {
-    className: "name-row",
-    key: i
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "name-num"
-  }, i + 1), /*#__PURE__*/React.createElement("input", {
-    className: "name-input",
-    placeholder: tournamentMode === "1v1" ? `Spieler ${i + 1}` : `Team ${i + 1}`,
-    value: names[i] || "",
-    onChange: e => {
-      const n = [...names];
-      n[i] = e.target.value;
-      setNames(n);
+  }).map((_, i) => {
+    const teamSize = parseInt(tournamentMode) || 1;
+    const is2v2 = teamSize >= 2;
+    const tp = teamPlayers[i] || [];
+    function updateTeamPlayer(slot, playerId, playerName) {
+      const newTp = [...teamPlayers];
+      if (!newTp[i]) newTp[i] = [];
+      const slotArr = [...(newTp[i] || [])];
+      slotArr[slot] = playerId ? {
+        id: playerId,
+        name: playerName
+      } : {
+        id: null,
+        name: playerName
+      };
+      newTp[i] = slotArr;
+      setTeamPlayers(newTp);
+      // Auto-Teamname aus allen gesetzten Spielern
+      const allNames = slotArr.filter(p => p?.name).map(p => p.name.split(' ')[0]);
+      if (allNames.length >= 2) {
+        const n = [...names];
+        n[i] = allNames.join(' & ');
+        setNames(n);
+      } else if (allNames.length === 1 && !names[i]) {
+        const n = [...names];
+        n[i] = allNames[0];
+        setNames(n);
+      }
     }
-  })))), tournamentMode === "2v2" && /*#__PURE__*/React.createElement("button", {
+
+    // Used player IDs in this tournament (to disable duplicates)
+    const usedIds = teamPlayers.flatMap((tp2, ti) => ti !== i ? (tp2 || []).map(p => p?.id).filter(Boolean) : []);
+    return /*#__PURE__*/React.createElement("div", {
+      className: "name-row",
+      key: i,
+      style: {
+        flexDirection: "column",
+        alignItems: "stretch",
+        gap: 6,
+        padding: "10px 0",
+        borderBottom: "1px solid rgba(255,255,255,0.05)"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "name-num"
+    }, i + 1), /*#__PURE__*/React.createElement("input", {
+      className: "name-input",
+      style: {
+        flex: 1
+      },
+      placeholder: is2v2 ? `Teamname ${i + 1}` : `Spieler ${i + 1}`,
+      value: names[i] || "",
+      onChange: e => {
+        const n = [...names];
+        n[i] = e.target.value;
+        setNames(n);
+      }
+    })), is2v2 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: `repeat(${teamSize},1fr)`,
+        gap: 6,
+        paddingLeft: 32
+      }
+    }, Array.from({
+      length: teamSize
+    }).map((_, slot) => /*#__PURE__*/React.createElement("select", {
+      key: slot,
+      className: "match-entry-select",
+      style: {
+        fontSize: 13
+      },
+      value: tp[slot]?.id || "__free__",
+      onChange: e => {
+        if (e.target.value === "__free__") {
+          updateTeamPlayer(slot, null, tp[slot]?.name || "");
+        } else {
+          const p = players.find(p => p.id === e.target.value);
+          if (p) updateTeamPlayer(slot, p.id, p.name);
+        }
+      }
+    }, /*#__PURE__*/React.createElement("option", {
+      value: "__free__"
+    }, "\u2014 Spieler ", slot + 1, " \u2014"), /*#__PURE__*/React.createElement("optgroup", {
+      label: "Liga-Spieler"
+    }, players.map(p => /*#__PURE__*/React.createElement("option", {
+      key: p.id,
+      value: p.id,
+      disabled: usedIds.includes(p.id) && tp[slot]?.id !== p.id
+    }, p.name)))))), is2v2 && tp.some(p => p?.id === null && p?.name) &&
+    /*#__PURE__*/
+    // Freie Namen eingeben wenn kein Liga-Spieler gewählt
+    React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: `repeat(${teamSize},1fr)`,
+        gap: 6,
+        paddingLeft: 32
+      }
+    }, Array.from({
+      length: teamSize
+    }).map((_, slot) => !tp[slot]?.id ? /*#__PURE__*/React.createElement("input", {
+      key: slot,
+      className: "liga-add-input",
+      style: {
+        fontSize: 13
+      },
+      placeholder: `Freiname ${slot + 1}`,
+      value: tp[slot]?.name || "",
+      onChange: e => updateTeamPlayer(slot, null, e.target.value)
+    }) : null)));
+  })), tournamentMode === "2v2" && /*#__PURE__*/React.createElement("button", {
     className: "demo-btn",
     onClick: () => {
       const d = ["Pong Kings", "Becherbande", "Schaumschläger", "Hopfen & Malz", "Die Zielsicheren", "Nassauer", "Bierleichen", "Volltreffter", "Kippbrüder", "Schaumkronen", "Die Abschreiber", "Trinkfest", "Becherstürmer", "Nebelwerfer", "Saufpatrol", "Flüssigteam", "Schräge Vögel", "Präzisionsbier", "Blindtrinker", "Vollgas"];
