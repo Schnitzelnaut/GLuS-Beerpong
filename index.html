@@ -10362,8 +10362,20 @@ function AdminApp({
   }
   const [names, setNames] = useState(() => toArr(init.names, init.numPlayers ?? 20));
   const [teamPlayers, setTeamPlayers] = useState(() => toArr(init.teamPlayers, 0));
-  const [groups, setGroups] = useState(init.groups || null);
-  const [koMatches, setKoMatches] = useState(init.koMatches || null);
+  function normGroups(g) {
+    if (!g) return null;
+    const arr = Array.isArray(g) ? g : Object.values(g);
+    return arr.map(grp => ({
+      ...grp,
+      teams: Array.isArray(grp.teams) ? grp.teams : Object.values(grp.teams || {}),
+      matches: Array.isArray(grp.matches) ? grp.matches : Object.values(grp.matches || {})
+    }));
+  }
+  const [groups, setGroups] = useState(() => normGroups(init.groups));
+  const [koMatches, setKoMatches] = useState(() => {
+    const k = init.koMatches;
+    return k ? Array.isArray(k) ? k : Object.values(k) : null;
+  });
   const [editSeeding, setEditSeeding] = useState(false);
   const [swapSlot, setSwapSlot] = useState(null);
   const [showTourneyMoreSheet, setShowTourneyMoreSheet] = useState(false);
@@ -10420,8 +10432,8 @@ function AdminApp({
     if (data.advPerGroup !== undefined) setAdvPerGroup(data.advPerGroup);
     if (data.names !== undefined) setNames(Array.isArray(data.names) ? data.names : Object.values(data.names || {}));
     if (data.teamPlayers !== undefined) setTeamPlayers(Array.isArray(data.teamPlayers) ? data.teamPlayers : Object.values(data.teamPlayers || {}));
-    if (data.groups !== undefined) setGroups(data.groups);
-    if (data.koMatches !== undefined) setKoMatches(data.koMatches);
+    if (data.groups !== undefined) setGroups(normGroups(data.groups));
+    if (data.koMatches !== undefined) setKoMatches(data.koMatches ? Array.isArray(data.koMatches) ? data.koMatches : Object.values(data.koMatches) : null);
   }
 
   // Build snapshot for Firebase write
