@@ -10354,8 +10354,13 @@ function AdminApp({
   const [withRematch, setWithRematch] = useState(init.withRematch ?? false);
   const [withSeeding, setWithSeeding] = useState(init.withSeeding ?? false);
   const [advPerGroup, setAdvPerGroup] = useState(init.advPerGroup ?? 2);
-  const [names, setNames] = useState(init.names || Array(init.numPlayers ?? 20).fill(""));
-  const [teamPlayers, setTeamPlayers] = useState(init.teamPlayers || []); // [{id,name}[]] per team slot
+  function toArr(val, defaultLen) {
+    if (!val) return Array(defaultLen).fill("");
+    if (Array.isArray(val)) return val;
+    return Object.values(val);
+  }
+  const [names, setNames] = useState(() => toArr(init.names, init.numPlayers ?? 20));
+  const [teamPlayers, setTeamPlayers] = useState(() => toArr(init.teamPlayers, 0));
   const [groups, setGroups] = useState(init.groups || null);
   const [koMatches, setKoMatches] = useState(init.koMatches || null);
   const [editSeeding, setEditSeeding] = useState(false);
@@ -10963,7 +10968,7 @@ function AdminApp({
     names: names,
     numPlayers: numPlayers,
     onSelect: selected => {
-      const n = [...names];
+      const n = Array.isArray(names) ? [...names] : Object.values(names || {});
       selected.forEach((name, i) => {
         if (i < numPlayers) n[i] = name;
       });
