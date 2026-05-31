@@ -1,0 +1,12 @@
+const CACHE='glus-v94';
+const ASSETS=['./','./index.html','./manifest.json','./icon-192.png','./icon-512.png','./apple-touch-icon.png','./favicon.png'];
+self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS).catch(()=>{})));self.skipWaiting();});
+self.addEventListener('activate',e=>{e.waitUntil(
+  caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))))
+  .then(()=>self.clients.claim())
+  .then(()=>self.clients.matchAll({type:'window'}))
+  .then(clients=>clients.forEach(c=>c.postMessage({type:'SW_UPDATED'})))
+);});
+self.addEventListener('fetch',e=>{if(e.request.url.includes('firebasedatabase.app')||e.request.url.includes('googleapis.com')||e.request.url.includes('workers.dev'))return;e.respondWith(caches.match(e.request).then(cached=>{const fp=fetch(e.request).then(r=>{if(r&&r.status===200&&e.request.method==='GET'){caches.open(CACHE).then(c=>c.put(e.request,r.clone())).catch(()=>{});}return r;}).catch(()=>cached);return cached||fp;}));});
+self.addEventListener('push',e=>{const d=e.data?e.data.json():{};e.waitUntil(self.registration.showNotification(d.title||'GLuS BeerPong',{body:d.body||'',icon:'./icon-192.png',badge:'./favicon.png',data:{url:d.url||'/GLuS-Beerpong/'},vibrate:[200,100,200]}));});
+self.addEventListener('notificationclick',e=>{e.notification.close();const url=e.notification.data?.url||'/GLuS-Beerpong/';e.waitUntil(clients.matchAll({type:'window'}).then(cs=>{for(const c of cs){if(c.url.includes('GLuS-Beerpong')&&'focus'in c)return c.focus();}if(clients.openWindow)return clients.openWindow(url);}));});
