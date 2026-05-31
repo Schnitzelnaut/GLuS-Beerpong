@@ -15,7 +15,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v100";
+const APP_VERSION = "glus-v101";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -10739,24 +10739,23 @@ function AdminApp({
       const ligaData = loadLiga() || {};
       const ligaMatches = Array.isArray(ligaData.matches) ? ligaData.matches : Object.values(ligaData.matches || {});
       const ligaArchive = Array.isArray(ligaData.archive) ? ligaData.archive : Object.values(ligaData.archive || {});
-      const allMatchesEver = [...ligaMatches, ...ligaArchive.flatMap(a => Array.isArray(a.matches) ? a.matches : Object.values(a.matches || {}))];
-      const allStats = calcAllPlayerStats(players || [], allMatchesEver);
-      const statById = Object.fromEntries(allStats.map(s => [s.id, s]));
-      const statByName = Object.fromEntries(allStats.map(s => [s.name, s]));
-
-      // Berechne Score pro Team
+      const safeTp = Array.isArray(teamPlayers) ? teamPlayers : Object.values(teamPlayers || {});
+      function playerSeedScore(playerId) {
+        if (!playerId) return null;
+        return calcSkillScore(calcLifetimeStatsLastN(playerId, ligaMatches, ligaArchive, 50));
+      }
       function teamScore(idx) {
-        const name = filled[idx];
         if (tournamentMode === "1v1") {
-          // 1v1: Score direkt per Name
-          const s = statByName[name];
-          return s && s.games > 0 ? s.winRate : -1;
+          const p = (players || []).find(x => x.name === filled[idx]);
+          const s = p ? playerSeedScore(p.id) : null;
+          return s !== null ? s : -1;
         } else {
-          // 2v2+: Durchschnitt der ausgewählten Spieler
-          const tp = teamPlayers[idx];
-          if (!tp || tp.length === 0) return -1;
-          const scores = tp.map(p => p.id ? statById[p.id] : statByName[p.name]).filter(Boolean).map(s => s.games > 0 ? s.winRate : 0.5);
-          return scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : -1;
+          const tp = Array.isArray(safeTp[idx]) ? safeTp[idx] : [];
+          const ligaScores = tp.filter(p => p?.id).map(p => playerSeedScore(p.id)).filter(s => s !== null);
+          if (ligaScores.length === 0) return -1;
+          const unknownCount = (parseInt(tournamentMode) || 2) - ligaScores.length;
+          const allScores = [...ligaScores, ...Array(Math.max(0, unknownCount)).fill(0.5)];
+          return allScores.reduce((a, b) => a + b, 0) / allScores.length;
         }
       }
       const indices = filled.map((_, i) => i);
@@ -11248,42 +11247,59 @@ function AdminApp({
     onClick: () => setTab("names")
   }, "\uD83D\uDC65 Teams eintragen \u2192"), withSeeding && numGroups > 1 && (() => {
     const safeN = Array.isArray(names) ? names : Object.values(names || {});
-    const filled = safeN.slice(0, numPlayers).filter(n => n && n.trim());
-    if (filled.length < numGroups) return null;
+    const filledNames = safeN.slice(0, numPlayers).map((n, i) => ({
+      name: (n || "").trim(),
+      idx: i
+    })).filter(x => x.name);
+    if (filledNames.length < numGroups) return null;
     const ligaData = loadLiga() || {};
     const ligaMatches = Array.isArray(ligaData.matches) ? ligaData.matches : Object.values(ligaData.matches || {});
     const ligaArchive = Array.isArray(ligaData.archive) ? ligaData.archive : Object.values(ligaData.archive || {});
-    const allM = [...ligaMatches, ...ligaArchive.flatMap(a => Array.isArray(a.matches) ? a.matches : Object.values(a.matches || {}))];
-    const allStats = calcAllPlayerStats(players || [], allM);
-    const statById = Object.fromEntries(allStats.map(s => [s.id, s]));
-    const statByName = Object.fromEntries(allStats.map(s => [s.name, s]));
     const safeTp = Array.isArray(teamPlayers) ? teamPlayers : Object.values(teamPlayers || {});
     const teamSizeN = parseInt(tournamentMode) || 1;
     const is2v2 = teamSizeN >= 2;
-    const scored = safeN.slice(0, numPlayers).map((name, idx) => {
-      if (!name || !name.trim()) return null;
-      let score = -1;
+
+    // Score pro Slot (wie Wettquote): calcSkillScore(calcLifetimeStatsLastN)
+    function playerScore(playerId) {
+      if (!playerId) return null; // kein Liga-Spieler → unbekannt
+      const stats = calcLifetimeStatsLastN(playerId, ligaMatches, ligaArchive, 50);
+      return calcSkillScore(stats);
+    }
+    const scored = filledNames.map(({
+      name,
+      idx
+    }) => {
+      let score;
       if (is2v2) {
-        // 2v2: Durchschnitt der ausgewählten Spieler-Stats
         const tp = Array.isArray(safeTp[idx]) ? safeTp[idx] : [];
-        const scores = tp.filter(p => p && (p.id || p.name)).map(p => {
-          const s = p.id && statById[p.id] ? statById[p.id] : statByName[p.name];
-          return s && s.games > 0 ? s.winRate : null;
-        }).filter(s => s !== null);
-        if (scores.length > 0) score = scores.reduce((a, b) => a + b, 0) / scores.length;
+        const ligaScores = tp.filter(p => p?.id).map(p => playerScore(p.id)).filter(s => s !== null);
+        if (ligaScores.length === 0) {
+          score = -1; // komplett random
+        } else if (ligaScores.length < teamSizeN) {
+          // Gemischt: Liga-Spieler + Unbekannte → Unbekannte = 0.5 (Bayesian prior)
+          const unknownCount = teamSizeN - ligaScores.length;
+          const allScores = [...ligaScores, ...Array(unknownCount).fill(0.5)];
+          score = allScores.reduce((a, b) => a + b, 0) / allScores.length;
+        } else {
+          score = ligaScores.reduce((a, b) => a + b, 0) / ligaScores.length;
+        }
       } else {
-        // 1v1: direkt per Name
-        const s = statByName[name.trim()];
-        if (s && s.games > 0) score = s.winRate;
+        const p = (players || []).find(x => x.name === name);
+        score = p ? playerScore(p.id) : -1;
       }
       return {
-        name: name.trim(),
+        name,
         score,
-        idx
+        odds: score > 0 ? calcOdds(score) : null
       };
-    }).filter(Boolean).sort((a, b) => b.score - a.score);
+    }).sort((a, b) => {
+      if (a.score < 0 && b.score < 0) return 0;
+      if (a.score < 0) return 1;
+      if (b.score < 0) return -1;
+      return a.odds - b.odds; // niedrigere Quote = stärker
+    });
     const seeds = scored.slice(0, numGroups);
-    if (!seeds.some(s => s.score >= 0)) return null;
+    if (!seeds.some(s => s.score > 0)) return null;
     return /*#__PURE__*/React.createElement("div", {
       style: {
         background: "rgba(240,192,64,0.08)",
@@ -11307,7 +11323,7 @@ function AdminApp({
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
-        padding: "4px 0",
+        padding: "5px 0",
         borderBottom: i < seeds.length - 1 ? "1px solid rgba(255,255,255,0.05)" : "none"
       }
     }, /*#__PURE__*/React.createElement("div", {
@@ -11327,15 +11343,22 @@ function AdminApp({
     }, "G", String.fromCharCode(65 + i)), /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 13,
-        fontWeight: s.score >= 0 ? 700 : 400,
-        color: s.score >= 0 ? "var(--text)" : "var(--dim)"
+        fontWeight: 700
       }
     }, s.name)), /*#__PURE__*/React.createElement("span", {
       style: {
-        fontSize: 11,
-        color: "var(--dim)"
+        fontFamily: "'Barlow Condensed',sans-serif",
+        fontSize: 13,
+        color: s.odds ? "#8bc34a" : "var(--dim)",
+        fontWeight: 600
       }
-    }, s.score >= 0 ? `${Math.round(s.score * 100)}% Win${is2v2 ? " (Ø)" : ""}` : "ungesetzt"))));
+    }, s.odds ? `${s.odds.toFixed(2)}x` : "ungesetzt"))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "var(--dim)",
+        marginTop: 8
+      }
+    }, "Niedrigere Quote = st\xE4rkeres Team"));
   })(), (Array.isArray(names) ? names : Object.values(names || {})).filter(n => n && n.trim()).length >= 2 && /*#__PURE__*/React.createElement("button", {
     className: "big-btn",
     style: {
