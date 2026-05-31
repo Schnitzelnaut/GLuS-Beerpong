@@ -1634,14 +1634,16 @@ function generateMatches(n, withRematch = false) {
   return matches;
 }
 function getStandings(group, advPerGroup) {
-  const stats = group.teams.map((name, i) => ({
+  const teams = Array.isArray(group.teams) ? group.teams : Object.values(group.teams || {});
+  const matches = Array.isArray(group.matches) ? group.matches : Object.values(group.matches || {});
+  const stats = teams.map((name, i) => ({
     name,
     i,
     wins: 0,
     cupsFor: 0,
     cupsAgainst: 0
   }));
-  for (const m of group.matches) {
+  for (const m of matches) {
     // winner must be exactly "A" or "B" to count — not null, not a number, not anything else
     if (m.winner !== "A" && m.winner !== "B") continue;
     const ia = m.a ?? m.home ?? 0;
@@ -11084,9 +11086,11 @@ function AdminApp({
     className: "info-box"
   }, "Das Turnier wurde noch nicht gestartet.")) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "groups-grid"
-  }, groups.map((group, gi) => {
+  }, (Array.isArray(groups) ? groups : Object.values(groups || {})).map((group, gi) => {
     const standings = getStandings(group, advPerGroup);
-    const done = group.matches.filter(m => m.winner !== null).length;
+    const gTeams = Array.isArray(group.teams) ? group.teams : Object.values(group.teams || {});
+    const gMatches = Array.isArray(group.matches) ? group.matches : Object.values(group.matches || {});
+    const done = gMatches.filter(m => m.winner !== null).length;
     return /*#__PURE__*/React.createElement("div", {
       className: "group-card",
       key: gi
@@ -11096,7 +11100,7 @@ function AdminApp({
       className: "group-name-label"
     }, "Gruppe ", group.name), /*#__PURE__*/React.createElement("div", {
       className: "group-progress"
-    }, done, "/", group.matches.length, " Spiele")), /*#__PURE__*/React.createElement("table", {
+    }, done, "/", gMatches.length, " Spiele")), /*#__PURE__*/React.createElement("table", {
       className: "standings"
     }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "#"), /*#__PURE__*/React.createElement("th", {
       style: {
@@ -11116,9 +11120,9 @@ function AdminApp({
       className: "matches-section"
     }, /*#__PURE__*/React.createElement("div", {
       className: "matches-title"
-    }, "\uD83C\uDF7A Spiele"), group.matches.map((m, mi) => {
-      const tA = group.teams[m.a],
-        tB = group.teams[m.b];
+    }, "\uD83C\uDF7A Spiele"), gMatches.map((m, mi) => {
+      const tA = gTeams[m.a],
+        tB = gTeams[m.b];
       return /*#__PURE__*/React.createElement("div", {
         className: "match-row",
         key: mi
