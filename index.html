@@ -10858,13 +10858,14 @@ function AdminApp({
   }, Array.from({
     length: numPlayers
   }).map((_, i) => {
-    const teamSize = parseInt(tournamentMode) || 1;
-    const is2v2 = teamSize >= 2;
-    const tp = teamPlayers[i] || [];
+    const teamSizeN = parseInt(tournamentMode) || 1;
+    const is2v2 = teamSizeN >= 2;
+    const safeTp = Array.isArray(teamPlayers) ? teamPlayers : [];
+    const tp = Array.isArray(safeTp[i]) ? safeTp[i] : [];
     function updateTeamPlayer(slot, playerId, playerName) {
-      const newTp = [...teamPlayers];
-      if (!newTp[i]) newTp[i] = [];
-      const slotArr = [...(newTp[i] || [])];
+      const newTp = Array.isArray(teamPlayers) ? [...teamPlayers] : [];
+      while (newTp.length <= i) newTp.push([]);
+      const slotArr = Array.isArray(newTp[i]) ? [...newTp[i]] : [];
       slotArr[slot] = playerId ? {
         id: playerId,
         name: playerName
@@ -10874,7 +10875,6 @@ function AdminApp({
       };
       newTp[i] = slotArr;
       setTeamPlayers(newTp);
-      // Auto-Teamname aus allen gesetzten Spielern
       const allNames = slotArr.filter(p => p?.name).map(p => p.name.split(' ')[0]);
       if (allNames.length >= 2) {
         const n = [...names];
@@ -10886,9 +10886,7 @@ function AdminApp({
         setNames(n);
       }
     }
-
-    // Used player IDs in this tournament (to disable duplicates)
-    const usedIds = teamPlayers.flatMap((tp2, ti) => ti !== i ? (tp2 || []).map(p => p?.id).filter(Boolean) : []);
+    const usedIds = (Array.isArray(teamPlayers) ? teamPlayers : []).flatMap((tp2, ti) => ti !== i ? (Array.isArray(tp2) ? tp2 : []).map(p => p?.id).filter(Boolean) : []);
     return /*#__PURE__*/React.createElement("div", {
       className: "name-row",
       key: i,
@@ -10922,57 +10920,54 @@ function AdminApp({
     })), is2v2 && /*#__PURE__*/React.createElement("div", {
       style: {
         display: "grid",
-        gridTemplateColumns: `repeat(${teamSize},1fr)`,
+        gridTemplateColumns: `repeat(${teamSizeN},1fr)`,
         gap: 6,
         paddingLeft: 32
       }
     }, Array.from({
-      length: teamSize
+      length: teamSizeN
     }).map((_, slot) => /*#__PURE__*/React.createElement("select", {
       key: slot,
       className: "match-entry-select",
       style: {
         fontSize: 13
       },
-      value: tp[slot]?.id || "__free__",
+      value: tp[slot]?.id || "",
       onChange: e => {
-        if (e.target.value === "__free__") {
-          updateTeamPlayer(slot, null, tp[slot]?.name || "");
+        if (!e.target.value) {
+          updateTeamPlayer(slot, null, "");
         } else {
           const p = players.find(p => p.id === e.target.value);
           if (p) updateTeamPlayer(slot, p.id, p.name);
         }
       }
     }, /*#__PURE__*/React.createElement("option", {
-      value: "__free__"
-    }, "\u2014 Spieler ", slot + 1, " \u2014"), /*#__PURE__*/React.createElement("optgroup", {
-      label: "Liga-Spieler"
-    }, players.map(p => /*#__PURE__*/React.createElement("option", {
+      value: ""
+    }, "\u2014 Spieler ", slot + 1, " (Liga) \u2014"), players.map(p => /*#__PURE__*/React.createElement("option", {
       key: p.id,
       value: p.id,
       disabled: usedIds.includes(p.id) && tp[slot]?.id !== p.id
-    }, p.name)))))), is2v2 && tp.some(p => p?.id === null && p?.name) &&
-    /*#__PURE__*/
-    // Freie Namen eingeben wenn kein Liga-Spieler gewählt
-    React.createElement("div", {
+    }, p.name))))), is2v2 && tp.some(p => p?.id === null) && /*#__PURE__*/React.createElement("div", {
       style: {
         display: "grid",
-        gridTemplateColumns: `repeat(${teamSize},1fr)`,
+        gridTemplateColumns: `repeat(${teamSizeN},1fr)`,
         gap: 6,
         paddingLeft: 32
       }
     }, Array.from({
-      length: teamSize
-    }).map((_, slot) => !tp[slot]?.id ? /*#__PURE__*/React.createElement("input", {
+      length: teamSizeN
+    }).map((_, slot) => tp[slot]?.id === null ? /*#__PURE__*/React.createElement("input", {
       key: slot,
       className: "liga-add-input",
       style: {
         fontSize: 13
       },
-      placeholder: `Freiname ${slot + 1}`,
+      placeholder: `Externer Spieler ${slot + 1}`,
       value: tp[slot]?.name || "",
       onChange: e => updateTeamPlayer(slot, null, e.target.value)
-    }) : null)));
+    }) : /*#__PURE__*/React.createElement("div", {
+      key: slot
+    }))));
   })), tournamentMode === "2v2" && /*#__PURE__*/React.createElement("button", {
     className: "demo-btn",
     onClick: () => {
