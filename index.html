@@ -11228,7 +11228,97 @@ function AdminApp({
       margin: 0
     },
     onClick: () => setTab("names")
-  }, "\uD83D\uDC65 Teams eintragen \u2192"), names.filter(n => n && n.trim()).length >= 2 && /*#__PURE__*/React.createElement("button", {
+  }, "\uD83D\uDC65 Teams eintragen \u2192"), withSeeding && numGroups > 1 && (() => {
+    const safeN = Array.isArray(names) ? names : Object.values(names || {});
+    const filled = safeN.slice(0, numPlayers).filter(n => n && n.trim());
+    if (filled.length < numGroups) return null;
+    const ligaData = loadLiga() || {};
+    const ligaMatches = Array.isArray(ligaData.matches) ? ligaData.matches : Object.values(ligaData.matches || {});
+    const ligaArchive = Array.isArray(ligaData.archive) ? ligaData.archive : Object.values(ligaData.archive || {});
+    const allM = [...ligaMatches, ...ligaArchive.flatMap(a => Array.isArray(a.matches) ? a.matches : Object.values(a.matches || {}))];
+    const allStats = calcAllPlayerStats(players || [], allM);
+    const statById = Object.fromEntries(allStats.map(s => [s.id, s]));
+    const statByName = Object.fromEntries(allStats.map(s => [s.name, s]));
+    const safeTp = Array.isArray(teamPlayers) ? teamPlayers : Object.values(teamPlayers || {});
+    const teamSizeN = parseInt(tournamentMode) || 1;
+    const is2v2 = teamSizeN >= 2;
+    const scored = safeN.slice(0, numPlayers).map((name, idx) => {
+      if (!name || !name.trim()) return null;
+      let score = -1;
+      if (is2v2) {
+        // 2v2: Durchschnitt der ausgewählten Spieler-Stats
+        const tp = Array.isArray(safeTp[idx]) ? safeTp[idx] : [];
+        const scores = tp.filter(p => p && (p.id || p.name)).map(p => {
+          const s = p.id ? statById[p.id] : statByName[p.name];
+          return s && s.games > 0 ? s.winRate : null;
+        }).filter(s => s !== null);
+        if (scores.length > 0) score = scores.reduce((a, b) => a + b, 0) / scores.length;
+      } else {
+        // 1v1: direkt per Name
+        const s = statByName[name.trim()];
+        if (s && s.games > 0) score = s.winRate;
+      }
+      return {
+        name: name.trim(),
+        score,
+        idx
+      };
+    }).filter(Boolean).sort((a, b) => b.score - a.score);
+    const seeds = scored.slice(0, numGroups);
+    if (!seeds.some(s => s.score >= 0)) return null;
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        background: "rgba(240,192,64,0.08)",
+        border: "1px solid rgba(240,192,64,0.3)",
+        borderRadius: 8,
+        padding: 12,
+        textAlign: "left"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "'Barlow Condensed',sans-serif",
+        fontSize: 12,
+        letterSpacing: 1.5,
+        textTransform: "uppercase",
+        color: "var(--gold)",
+        marginBottom: 8
+      }
+    }, "\uD83C\uDFC5 Gruppenk\xF6pfe (gesetzt)"), seeds.map((s, i) => /*#__PURE__*/React.createElement("div", {
+      key: i,
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: "4px 0",
+        borderBottom: i < seeds.length - 1 ? "1px solid rgba(255,255,255,0.05)" : "none"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: "'Barlow Condensed',sans-serif",
+        fontSize: 13,
+        color: "var(--gold)",
+        fontWeight: 700,
+        width: 20
+      }
+    }, "G", String.fromCharCode(65 + i)), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13,
+        fontWeight: s.score >= 0 ? 700 : 400,
+        color: s.score >= 0 ? "var(--text)" : "var(--dim)"
+      }
+    }, s.name)), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 11,
+        color: "var(--dim)"
+      }
+    }, s.score >= 0 ? `${Math.round(s.score * 100)}% Win${is2v2 ? " (Ø)" : ""}` : "ungesetzt"))));
+  })(), (Array.isArray(names) ? names : Object.values(names || {})).filter(n => n && n.trim()).length >= 2 && /*#__PURE__*/React.createElement("button", {
     className: "big-btn",
     style: {
       margin: 0,
