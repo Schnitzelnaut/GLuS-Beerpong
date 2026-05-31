@@ -15,7 +15,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v101";
+const APP_VERSION = "glus-v102";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -11194,7 +11194,101 @@ function AdminApp({
     className: "card-title"
   }, "\uD83C\uDFB2 ", tournamentFormat === "ko_only" ? "Bracket erstellen" : "Auslosen"), /*#__PURE__*/React.createElement("div", {
     className: "info-box"
-  }, tournamentFormat === "ko_only" ? "Direkt KO-Bracket aus der Liste" : "Leere Felder → Platzhalter\nGruppen werden zufällig ausgelost."), /*#__PURE__*/React.createElement("button", {
+  }, tournamentFormat === "ko_only" ? "Direkt KO-Bracket aus der Liste" : "Leere Felder → Platzhalter\nGruppen werden zufällig ausgelost."), withSeeding && numGroups > 1 && (() => {
+    const safeN = Array.isArray(names) ? names : Object.values(names || {});
+    const filledNames = safeN.slice(0, numPlayers).map((n, i) => ({
+      name: (n || "").trim(),
+      idx: i
+    })).filter(x => x.name);
+    if (filledNames.length < numGroups) return null;
+    const ligaData = loadLiga() || {};
+    const ligaM = Array.isArray(ligaData.matches) ? ligaData.matches : Object.values(ligaData.matches || {});
+    const ligaA = Array.isArray(ligaData.archive) ? ligaData.archive : Object.values(ligaData.archive || {});
+    const safeTp2 = Array.isArray(teamPlayers) ? teamPlayers : Object.values(teamPlayers || {});
+    const is2v2 = (parseInt(tournamentMode) || 1) >= 2;
+    const teamSizeN2 = parseInt(tournamentMode) || 1;
+    function pScore(id) {
+      return id ? calcSkillScore(calcLifetimeStatsLastN(id, ligaM, ligaA, 50)) : null;
+    }
+    const scored = filledNames.map(({
+      name,
+      idx
+    }) => {
+      let score;
+      if (is2v2) {
+        const tp = Array.isArray(safeTp2[idx]) ? safeTp2[idx] : [];
+        const ls = tp.filter(p => p?.id).map(p => pScore(p.id)).filter(s => s !== null);
+        if (!ls.length) score = -1;else {
+          const unk = teamSizeN2 - ls.length;
+          score = [...ls, ...Array(Math.max(0, unk)).fill(0.5)].reduce((a, b) => a + b, 0) / (ls.length + Math.max(0, unk));
+        }
+      } else {
+        const p = (players || []).find(x => x.name === name);
+        const s = p ? pScore(p.id) : null;
+        score = s !== null ? s : -1;
+      }
+      return {
+        name,
+        score,
+        odds: score > 0 ? calcOdds(score) : null
+      };
+    }).sort((a, b) => a.score < 0 && b.score < 0 ? 0 : a.score < 0 ? 1 : b.score < 0 ? -1 : a.odds - b.odds);
+    const seeds = scored.slice(0, numGroups);
+    if (!seeds.some(s => s.score > 0)) return null;
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        background: "rgba(240,192,64,0.08)",
+        border: "1px solid rgba(240,192,64,0.25)",
+        borderRadius: 8,
+        padding: "10px 12px",
+        marginBottom: 12
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "'Barlow Condensed',sans-serif",
+        fontSize: 11,
+        letterSpacing: 1.5,
+        textTransform: "uppercase",
+        color: "var(--gold)",
+        marginBottom: 8
+      }
+    }, "\uD83C\uDFC5 Gruppenk\xF6pfe"), seeds.map((s, i) => /*#__PURE__*/React.createElement("div", {
+      key: i,
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: "3px 0",
+        borderBottom: i < seeds.length - 1 ? "1px solid rgba(255,255,255,0.05)" : "none"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 6
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: "'Barlow Condensed',sans-serif",
+        fontSize: 12,
+        color: "var(--gold)",
+        fontWeight: 700,
+        width: 18
+      }
+    }, "G", String.fromCharCode(65 + i)), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 12,
+        fontWeight: 700,
+        color: s.score > 0 ? "var(--text)" : "var(--dim)"
+      }
+    }, s.name)), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontFamily: "'Barlow Condensed',sans-serif",
+        fontSize: 12,
+        color: s.odds ? "#8bc34a" : "var(--dim)"
+      }
+    }, s.odds ? `${s.odds.toFixed(2)}x` : "random"))));
+  })(), /*#__PURE__*/React.createElement("button", {
     className: "big-btn",
     onClick: generate,
     disabled: !canEditTurnier,
