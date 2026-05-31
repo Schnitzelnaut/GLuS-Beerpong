@@ -10432,8 +10432,8 @@ function AdminApp({
     const filled = names.slice(0, numPlayers).map((n, i) => n.trim() || `${label} ${i + 1}`);
     let ordered;
     if (withSeeding && numGroups > 1) {
-      const allMatchesEver = [...matches, ...(archive || []).flatMap(a => a.matches || [])];
-      const allStats = calcAllPlayerStats(players, allMatchesEver);
+      const allMatchesEver = [...(matches || []), ...(archive || []).flatMap(a => a.matches || [])];
+      const allStats = calcAllPlayerStats(players || [], allMatchesEver);
       const statById = Object.fromEntries(allStats.map(s => [s.id, s]));
       const statByName = Object.fromEntries(allStats.map(s => [s.name, s]));
 
@@ -10937,13 +10937,13 @@ function AdminApp({
         if (!e.target.value) {
           updateTeamPlayer(slot, null, "");
         } else {
-          const p = players.find(p => p.id === e.target.value);
+          const p = (players || []).find(p => p.id === e.target.value);
           if (p) updateTeamPlayer(slot, p.id, p.name);
         }
       }
     }, /*#__PURE__*/React.createElement("option", {
       value: ""
-    }, "\u2014 Spieler ", slot + 1, " (Liga) \u2014"), players.map(p => /*#__PURE__*/React.createElement("option", {
+    }, "\u2014 Spieler ", slot + 1, " (Liga) \u2014"), (players || []).map(p => /*#__PURE__*/React.createElement("option", {
       key: p.id,
       value: p.id,
       disabled: usedIds.includes(p.id) && tp[slot]?.id !== p.id
