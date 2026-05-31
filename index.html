@@ -9240,7 +9240,8 @@ function LigaParticipantPicker({
 }) {
   const [ligaState] = useState(() => loadLiga());
   const players = ligaState?.players || [];
-  const [selected, setSelected] = useState(() => new Set(names.filter(Boolean)));
+  const safeNames = Array.isArray(names) ? names : Object.values(names || {});
+  const [selected, setSelected] = useState(() => new Set(safeNames.filter(Boolean)));
   if (players.length === 0) return /*#__PURE__*/React.createElement("div", {
     className: "info-box",
     style: {
