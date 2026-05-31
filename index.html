@@ -10412,8 +10412,8 @@ function AdminApp({
     if (data.withRematch !== undefined) setWithRematch(data.withRematch);
     if (data.withSeeding !== undefined) setWithSeeding(data.withSeeding);
     if (data.advPerGroup !== undefined) setAdvPerGroup(data.advPerGroup);
-    if (data.names !== undefined) setNames(data.names);
-    if (data.teamPlayers !== undefined) setTeamPlayers(data.teamPlayers);
+    if (data.names !== undefined) setNames(Array.isArray(data.names) ? data.names : Object.values(data.names || {}));
+    if (data.teamPlayers !== undefined) setTeamPlayers(Array.isArray(data.teamPlayers) ? data.teamPlayers : Object.values(data.teamPlayers || {}));
     if (data.groups !== undefined) setGroups(data.groups);
     if (data.koMatches !== undefined) setKoMatches(data.koMatches);
   }
@@ -10543,7 +10543,8 @@ function AdminApp({
   }
   function generate() {
     const label = tournamentMode === "1v1" ? "Spieler" : "Team";
-    const filled = names.slice(0, numPlayers).map((n, i) => n.trim() || `${label} ${i + 1}`);
+    const safeNamesArr = Array.isArray(names) ? names : Object.values(names || {});
+    const filled = safeNamesArr.slice(0, numPlayers).map((n, i) => (n || "").trim() || `${label} ${i + 1}`);
     let ordered;
     if (withSeeding && numGroups > 1) {
       const allMatchesEver = [...(matches || []), ...(archive || []).flatMap(a => a.matches || [])];
@@ -10654,7 +10655,8 @@ function AdminApp({
   const third = p3MatchA ? getKoWinner(p3MatchA) : null;
   const prizePoolA = Math.max(0, entryFee * numPlayers - beerCases * pricePerCase);
   const adminPrizes = [Math.round(prizePoolA * share1 / 100), Math.round(prizePoolA * share2 / 100), Math.round(prizePoolA * share3 / 100)];
-  const filledCount = names.slice(0, numPlayers).filter(n => n.trim()).length;
+  const safeNames = Array.isArray(names) ? names : Object.values(names || {});
+  const filledCount = safeNames.slice(0, numPlayers).filter(n => n && n.trim()).length;
 
   // ── Render ───────────────────────────────────────────────────────────────
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("style", null, FONTS + css), /*#__PURE__*/React.createElement("div", {
