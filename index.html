@@ -10198,6 +10198,120 @@ function DisplayApp() {
     state: displayState
   });
 }
+function TeamNameRow({
+  index,
+  tournamentMode,
+  name,
+  onNameChange,
+  teamPlayers,
+  onTeamPlayersChange,
+  names,
+  onNamesChange,
+  players
+}) {
+  const teamSizeN = parseInt(tournamentMode) || 1;
+  const is2v2 = teamSizeN >= 2;
+  const safeTp = Array.isArray(teamPlayers) ? teamPlayers : [];
+  const tp = Array.isArray(safeTp[index]) ? safeTp[index] : [];
+  const usedIds = safeTp.flatMap((tp2, ti) => ti !== index ? (Array.isArray(tp2) ? tp2 : []).map(p => p?.id).filter(Boolean) : []);
+  function updateSlot(s, playerId, playerName) {
+    const newTp = Array.isArray(teamPlayers) ? [...teamPlayers] : [];
+    while (newTp.length <= index) newTp.push([]);
+    const slotArr = Array.isArray(newTp[index]) ? [...newTp[index]] : [];
+    slotArr[s] = {
+      id: playerId || null,
+      name: playerName || ""
+    };
+    newTp[index] = slotArr;
+    onTeamPlayersChange(newTp);
+    const filled = slotArr.filter(p => p?.name).map(p => p.name.split(' ')[0]);
+    if (filled.length >= 2) {
+      const n = [...names];
+      n[index] = filled.join(' & ');
+      onNamesChange(n);
+    } else if (filled.length === 1 && !names[index]) {
+      const n = [...names];
+      n[index] = filled[0];
+      onNamesChange(n);
+    }
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "name-row",
+    style: {
+      flexDirection: "column",
+      alignItems: "stretch",
+      gap: 6,
+      padding: "10px 0",
+      borderBottom: "1px solid rgba(255,255,255,0.05)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "name-num"
+  }, index + 1), /*#__PURE__*/React.createElement("input", {
+    className: "name-input",
+    style: {
+      flex: 1
+    },
+    placeholder: is2v2 ? `Teamname ${index + 1}` : `Spieler ${index + 1}`,
+    value: name,
+    onChange: e => onNameChange(e.target.value)
+  })), is2v2 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: `repeat(${teamSizeN},1fr)`,
+      gap: 6,
+      paddingLeft: 32
+    }
+  }, Array.from({
+    length: teamSizeN
+  }).map((_, s) => /*#__PURE__*/React.createElement("select", {
+    key: s,
+    className: "match-entry-select",
+    style: {
+      fontSize: 13
+    },
+    value: tp[s]?.id || "",
+    onChange: e => {
+      if (!e.target.value) {
+        updateSlot(s, null, "");
+      } else {
+        const p = (players || []).find(x => x.id === e.target.value);
+        if (p) updateSlot(s, p.id, p.name);
+      }
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u2014 Spieler ", s + 1, " \u2014"), (players || []).map(p => /*#__PURE__*/React.createElement("option", {
+    key: p.id,
+    value: p.id,
+    disabled: usedIds.includes(p.id) && tp[s]?.id !== p.id
+  }, p.name))))), is2v2 && tp.some(p => p && !p.id) && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: `repeat(${teamSizeN},1fr)`,
+      gap: 6,
+      paddingLeft: 32
+    }
+  }, Array.from({
+    length: teamSizeN
+  }).map((_, s) => !tp[s]?.id ? /*#__PURE__*/React.createElement("input", {
+    key: s,
+    className: "liga-add-input",
+    style: {
+      fontSize: 13
+    },
+    placeholder: `Externer ${s + 1}`,
+    value: tp[s]?.name || "",
+    onChange: e => updateSlot(s, null, e.target.value)
+  }) : /*#__PURE__*/React.createElement("div", {
+    key: s
+  }))));
+}
 function AdminApp({
   onSwitchToLiga,
   onBack,
@@ -10857,118 +10971,22 @@ function AdminApp({
     className: "input-list"
   }, Array.from({
     length: numPlayers
-  }).map((_, i) => {
-    const teamSizeN = parseInt(tournamentMode) || 1;
-    const is2v2 = teamSizeN >= 2;
-    const safeTp = Array.isArray(teamPlayers) ? teamPlayers : [];
-    const tp = Array.isArray(safeTp[i]) ? safeTp[i] : [];
-    function updateTeamPlayer(slot, playerId, playerName) {
-      const newTp = Array.isArray(teamPlayers) ? [...teamPlayers] : [];
-      while (newTp.length <= i) newTp.push([]);
-      const slotArr = Array.isArray(newTp[i]) ? [...newTp[i]] : [];
-      slotArr[slot] = playerId ? {
-        id: playerId,
-        name: playerName
-      } : {
-        id: null,
-        name: playerName
-      };
-      newTp[i] = slotArr;
-      setTeamPlayers(newTp);
-      const allNames = slotArr.filter(p => p?.name).map(p => p.name.split(' ')[0]);
-      if (allNames.length >= 2) {
-        const n = [...names];
-        n[i] = allNames.join(' & ');
-        setNames(n);
-      } else if (allNames.length === 1 && !names[i]) {
-        const n = [...names];
-        n[i] = allNames[0];
-        setNames(n);
-      }
-    }
-    const usedIds = (Array.isArray(teamPlayers) ? teamPlayers : []).flatMap((tp2, ti) => ti !== i ? (Array.isArray(tp2) ? tp2 : []).map(p => p?.id).filter(Boolean) : []);
-    return /*#__PURE__*/React.createElement("div", {
-      className: "name-row",
-      key: i,
-      style: {
-        flexDirection: "column",
-        alignItems: "stretch",
-        gap: 6,
-        padding: "10px 0",
-        borderBottom: "1px solid rgba(255,255,255,0.05)"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "flex",
-        alignItems: "center",
-        gap: 8
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "name-num"
-    }, i + 1), /*#__PURE__*/React.createElement("input", {
-      className: "name-input",
-      style: {
-        flex: 1
-      },
-      placeholder: is2v2 ? `Teamname ${i + 1}` : `Spieler ${i + 1}`,
-      value: names[i] || "",
-      onChange: e => {
-        const n = [...names];
-        n[i] = e.target.value;
-        setNames(n);
-      }
-    })), is2v2 && /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "grid",
-        gridTemplateColumns: `repeat(${teamSizeN},1fr)`,
-        gap: 6,
-        paddingLeft: 32
-      }
-    }, Array.from({
-      length: teamSizeN
-    }).map((_, slot) => /*#__PURE__*/React.createElement("select", {
-      key: slot,
-      className: "match-entry-select",
-      style: {
-        fontSize: 13
-      },
-      value: tp[slot]?.id || "",
-      onChange: e => {
-        if (!e.target.value) {
-          updateTeamPlayer(slot, null, "");
-        } else {
-          const p = (players || []).find(p => p.id === e.target.value);
-          if (p) updateTeamPlayer(slot, p.id, p.name);
-        }
-      }
-    }, /*#__PURE__*/React.createElement("option", {
-      value: ""
-    }, "\u2014 Spieler ", slot + 1, " (Liga) \u2014"), (players || []).map(p => /*#__PURE__*/React.createElement("option", {
-      key: p.id,
-      value: p.id,
-      disabled: usedIds.includes(p.id) && tp[slot]?.id !== p.id
-    }, p.name))))), is2v2 && tp.some(p => p?.id === null) && /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "grid",
-        gridTemplateColumns: `repeat(${teamSizeN},1fr)`,
-        gap: 6,
-        paddingLeft: 32
-      }
-    }, Array.from({
-      length: teamSizeN
-    }).map((_, slot) => tp[slot]?.id === null ? /*#__PURE__*/React.createElement("input", {
-      key: slot,
-      className: "liga-add-input",
-      style: {
-        fontSize: 13
-      },
-      placeholder: `Externer Spieler ${slot + 1}`,
-      value: tp[slot]?.name || "",
-      onChange: e => updateTeamPlayer(slot, null, e.target.value)
-    }) : /*#__PURE__*/React.createElement("div", {
-      key: slot
-    }))));
-  })), tournamentMode === "2v2" && /*#__PURE__*/React.createElement("button", {
+  }).map((_, i) => /*#__PURE__*/React.createElement(TeamNameRow, {
+    key: i,
+    index: i,
+    tournamentMode: tournamentMode,
+    name: names[i] || "",
+    onNameChange: val => {
+      const n = [...names];
+      n[i] = val;
+      setNames(n);
+    },
+    teamPlayers: teamPlayers,
+    onTeamPlayersChange: setTeamPlayers,
+    names: names,
+    onNamesChange: setNames,
+    players: players || []
+  }))), tournamentMode === "2v2" && /*#__PURE__*/React.createElement("button", {
     className: "demo-btn",
     onClick: () => {
       const d = ["Pong Kings", "Becherbande", "Schaumschläger", "Hopfen & Malz", "Die Zielsicheren", "Nassauer", "Bierleichen", "Volltreffter", "Kippbrüder", "Schaumkronen", "Die Abschreiber", "Trinkfest", "Becherstürmer", "Nebelwerfer", "Saufpatrol", "Flüssigteam", "Schräge Vögel", "Präzisionsbier", "Blindtrinker", "Vollgas"];
