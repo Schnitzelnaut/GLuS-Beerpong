@@ -15,7 +15,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v102";
+const APP_VERSION = "glus-v103";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -1540,6 +1540,23 @@ function calcSkillScore(s) {
 
 // Odds for a player. Lower number = stronger favorite.
 // Format: 1.50, 2.30, 5.00 etc. (decimal odds)
+
+// Setzlisten-Score: benutzt calcAllPlayerStats wie die Tabelle
+function calcSeedScore(playerId, allStats) {
+  const s = allStats.find(x => x.id === playerId);
+  if (!s || s.games === 0) return null;
+  return calcSkillScore(s);
+}
+function loadSeedStats() {
+  const d = loadLiga() || {};
+  const toArr = v => Array.isArray(v) ? v : Object.values(v || {});
+  const ps = toArr(d.players);
+  const ms = toArr(d.matches);
+  const arc = toArr(d.archive);
+  const arcMatches = arc.flatMap(a => toArr(a.matches));
+  const allMatches = [...ms, ...arcMatches].filter(m => m && !m.isFunGame);
+  return calcAllPlayerStats(ps, allMatches);
+}
 function calcOdds(score) {
   // Probability → Odds: odds = 1 / probability, with house edge of ~5%
   if (score <= 0) return 99.99;
@@ -10736,27 +10753,19 @@ function AdminApp({
     const filled = safeNamesArr.slice(0, numPlayers).map((n, i) => (n || "").trim() || `${label} ${i + 1}`);
     let ordered;
     if (withSeeding && numGroups > 1) {
-      const ligaData = loadLiga() || {};
-      const ligaMatches = Array.isArray(ligaData.matches) ? ligaData.matches : Object.values(ligaData.matches || {});
-      const ligaArchive = Array.isArray(ligaData.archive) ? ligaData.archive : Object.values(ligaData.archive || {});
+      const allStats = loadSeedStats();
       const safeTp = Array.isArray(teamPlayers) ? teamPlayers : Object.values(teamPlayers || {});
-      function playerSeedScore(playerId) {
-        if (!playerId) return null;
-        return calcSkillScore(calcLifetimeStatsLastN(playerId, ligaMatches, ligaArchive, 50));
-      }
+      const tSize = parseInt(tournamentMode) || 1;
       function teamScore(idx) {
         if (tournamentMode === "1v1") {
           const p = (players || []).find(x => x.name === filled[idx]);
-          const s = p ? playerSeedScore(p.id) : null;
-          return s !== null ? s : -1;
-        } else {
-          const tp = Array.isArray(safeTp[idx]) ? safeTp[idx] : [];
-          const ligaScores = tp.filter(p => p?.id).map(p => playerSeedScore(p.id)).filter(s => s !== null);
-          if (ligaScores.length === 0) return -1;
-          const unknownCount = (parseInt(tournamentMode) || 2) - ligaScores.length;
-          const allScores = [...ligaScores, ...Array(Math.max(0, unknownCount)).fill(0.5)];
-          return allScores.reduce((a, b) => a + b, 0) / allScores.length;
+          return p ? calcSeedScore(p.id, allStats) ?? -1 : -1;
         }
+        const tp = Array.isArray(safeTp[idx]) ? safeTp[idx] : [];
+        const ls = tp.filter(p => p?.id).map(p => calcSeedScore(p.id, allStats)).filter(s => s !== null);
+        if (!ls.length) return -1;
+        const unk = Math.max(0, tSize - ls.length);
+        return [...ls, ...Array(unk).fill(0.5)].reduce((a, b) => a + b, 0) / (ls.length + unk);
       }
       const indices = filled.map((_, i) => i);
       const seeded = indices.filter(i => teamScore(i) >= 0).sort((a, b) => teamScore(b) - teamScore(a)).slice(0, numGroups);
@@ -11201,32 +11210,27 @@ function AdminApp({
       idx: i
     })).filter(x => x.name);
     if (filledNames.length < numGroups) return null;
-    const ligaData = loadLiga() || {};
-    const ligaM = Array.isArray(ligaData.matches) ? ligaData.matches : Object.values(ligaData.matches || {});
-    const ligaA = Array.isArray(ligaData.archive) ? ligaData.archive : Object.values(ligaData.archive || {});
+    const allStats = loadSeedStats();
     const safeTp2 = Array.isArray(teamPlayers) ? teamPlayers : Object.values(teamPlayers || {});
     const is2v2 = (parseInt(tournamentMode) || 1) >= 2;
     const teamSizeN2 = parseInt(tournamentMode) || 1;
-    function pScore(id) {
-      return id ? calcSkillScore(calcLifetimeStatsLastN(id, ligaM, ligaA, 50)) : null;
+    function getTeamScore(idx) {
+      if (is2v2) {
+        const tp = Array.isArray(safeTp2[idx]) ? safeTp2[idx] : [];
+        const ls = tp.filter(p => p?.id).map(p => calcSeedScore(p.id, allStats)).filter(s => s !== null);
+        if (!ls.length) return -1;
+        const unk = Math.max(0, teamSizeN2 - ls.length);
+        return [...ls, ...Array(unk).fill(0.5)].reduce((a, b) => a + b, 0) / (ls.length + unk);
+      } else {
+        const p = (players || []).find(x => x.name === filledNames.find((_, i) => i === idx)?.name);
+        return p ? calcSeedScore(p.id, allStats) ?? -1 : -1;
+      }
     }
     const scored = filledNames.map(({
       name,
       idx
     }) => {
-      let score;
-      if (is2v2) {
-        const tp = Array.isArray(safeTp2[idx]) ? safeTp2[idx] : [];
-        const ls = tp.filter(p => p?.id).map(p => pScore(p.id)).filter(s => s !== null);
-        if (!ls.length) score = -1;else {
-          const unk = teamSizeN2 - ls.length;
-          score = [...ls, ...Array(Math.max(0, unk)).fill(0.5)].reduce((a, b) => a + b, 0) / (ls.length + Math.max(0, unk));
-        }
-      } else {
-        const p = (players || []).find(x => x.name === name);
-        const s = p ? pScore(p.id) : null;
-        score = s !== null ? s : -1;
-      }
+      const score = getTeamScore(idx);
       return {
         name,
         score,
