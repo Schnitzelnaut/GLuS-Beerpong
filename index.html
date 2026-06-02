@@ -15,7 +15,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v103";
+const APP_VERSION = "glus-v104";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -11343,121 +11343,7 @@ function AdminApp({
       margin: 0
     },
     onClick: () => setTab("names")
-  }, "\uD83D\uDC65 Teams eintragen \u2192"), withSeeding && numGroups > 1 && (() => {
-    const safeN = Array.isArray(names) ? names : Object.values(names || {});
-    const filledNames = safeN.slice(0, numPlayers).map((n, i) => ({
-      name: (n || "").trim(),
-      idx: i
-    })).filter(x => x.name);
-    if (filledNames.length < numGroups) return null;
-    const ligaData = loadLiga() || {};
-    const ligaMatches = Array.isArray(ligaData.matches) ? ligaData.matches : Object.values(ligaData.matches || {});
-    const ligaArchive = Array.isArray(ligaData.archive) ? ligaData.archive : Object.values(ligaData.archive || {});
-    const safeTp = Array.isArray(teamPlayers) ? teamPlayers : Object.values(teamPlayers || {});
-    const teamSizeN = parseInt(tournamentMode) || 1;
-    const is2v2 = teamSizeN >= 2;
-
-    // Score pro Slot (wie Wettquote): calcSkillScore(calcLifetimeStatsLastN)
-    function playerScore(playerId) {
-      if (!playerId) return null; // kein Liga-Spieler → unbekannt
-      const stats = calcLifetimeStatsLastN(playerId, ligaMatches, ligaArchive, 50);
-      return calcSkillScore(stats);
-    }
-    const scored = filledNames.map(({
-      name,
-      idx
-    }) => {
-      let score;
-      if (is2v2) {
-        const tp = Array.isArray(safeTp[idx]) ? safeTp[idx] : [];
-        const ligaScores = tp.filter(p => p?.id).map(p => playerScore(p.id)).filter(s => s !== null);
-        if (ligaScores.length === 0) {
-          score = -1; // komplett random
-        } else if (ligaScores.length < teamSizeN) {
-          // Gemischt: Liga-Spieler + Unbekannte → Unbekannte = 0.5 (Bayesian prior)
-          const unknownCount = teamSizeN - ligaScores.length;
-          const allScores = [...ligaScores, ...Array(unknownCount).fill(0.5)];
-          score = allScores.reduce((a, b) => a + b, 0) / allScores.length;
-        } else {
-          score = ligaScores.reduce((a, b) => a + b, 0) / ligaScores.length;
-        }
-      } else {
-        const p = (players || []).find(x => x.name === name);
-        score = p ? playerScore(p.id) : -1;
-      }
-      return {
-        name,
-        score,
-        odds: score > 0 ? calcOdds(score) : null
-      };
-    }).sort((a, b) => {
-      if (a.score < 0 && b.score < 0) return 0;
-      if (a.score < 0) return 1;
-      if (b.score < 0) return -1;
-      return a.odds - b.odds; // niedrigere Quote = stärker
-    });
-    const seeds = scored.slice(0, numGroups);
-    if (!seeds.some(s => s.score > 0)) return null;
-    return /*#__PURE__*/React.createElement("div", {
-      style: {
-        background: "rgba(240,192,64,0.08)",
-        border: "1px solid rgba(240,192,64,0.3)",
-        borderRadius: 8,
-        padding: 12,
-        textAlign: "left"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontFamily: "'Barlow Condensed',sans-serif",
-        fontSize: 12,
-        letterSpacing: 1.5,
-        textTransform: "uppercase",
-        color: "var(--gold)",
-        marginBottom: 8
-      }
-    }, "\uD83C\uDFC5 Gruppenk\xF6pfe (gesetzt)"), seeds.map((s, i) => /*#__PURE__*/React.createElement("div", {
-      key: i,
-      style: {
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        padding: "5px 0",
-        borderBottom: i < seeds.length - 1 ? "1px solid rgba(255,255,255,0.05)" : "none"
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "flex",
-        alignItems: "center",
-        gap: 8
-      }
-    }, /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontFamily: "'Barlow Condensed',sans-serif",
-        fontSize: 13,
-        color: "var(--gold)",
-        fontWeight: 700,
-        width: 20
-      }
-    }, "G", String.fromCharCode(65 + i)), /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontSize: 13,
-        fontWeight: 700
-      }
-    }, s.name)), /*#__PURE__*/React.createElement("span", {
-      style: {
-        fontFamily: "'Barlow Condensed',sans-serif",
-        fontSize: 13,
-        color: s.odds ? "#8bc34a" : "var(--dim)",
-        fontWeight: 600
-      }
-    }, s.odds ? `${s.odds.toFixed(2)}x` : "ungesetzt"))), /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 11,
-        color: "var(--dim)",
-        marginTop: 8
-      }
-    }, "Niedrigere Quote = st\xE4rkeres Team"));
-  })(), (Array.isArray(names) ? names : Object.values(names || {})).filter(n => n && n.trim()).length >= 2 && /*#__PURE__*/React.createElement("button", {
+  }, "\uD83D\uDC65 Teams eintragen \u2192"), (Array.isArray(names) ? names : Object.values(names || {})).filter(n => n && n.trim()).length >= 2 && /*#__PURE__*/React.createElement("button", {
     className: "big-btn",
     style: {
       margin: 0,
