@@ -15,7 +15,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v104";
+const APP_VERSION = "glus-v105";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -6907,6 +6907,94 @@ function LigaApp({
   }
 
   // Apply auf-/abstieg per league
+  function archiveAndApplyPromotion(newName) {
+    if (!isAdmin) return;
+    saveBackup(state, "before-season-end");
+
+    // 1. Aktuelle Standings berechnen (vor Auf-/Abstieg)
+    const finalStandings = [];
+    for (let lg = 0; lg < numLeagues; lg++) {
+      finalStandings.push({
+        league: lg,
+        standings: calcLeagueStandings(players, matches, lg)
+      });
+    }
+
+    // 2. Archiv-Eintrag erstellen (mit aktuellen Spielern und Matches)
+    const archiveEntry = {
+      seasonName,
+      started: seasonStarted,
+      ended: Date.now(),
+      numLeagues,
+      leagueConfig: leagueConfig.map(c => ({
+        ...c
+      })),
+      players: players.map(p => ({
+        ...p
+      })),
+      matches: matches.map(m => ({
+        ...m
+      })),
+      finalStandings
+    };
+
+    // Hall of Fame
+    const hof = state.hallOfFame || {
+      tournament: [],
+      league: []
+    };
+    let newHof = hof;
+    const liga1Standings = finalStandings[0]?.standings || [];
+    if (liga1Standings.length > 0 && liga1Standings[0].games > 0) {
+      newHof = {
+        ...hof,
+        league: [{
+          seasonName,
+          winner: liga1Standings[0].name,
+          playerId: liga1Standings[0].id,
+          date: Date.now()
+        }, ...(hof.league || [])].sort((a, b) => (b.date || 0) - (a.date || 0))
+      };
+    }
+
+    // 3. Auf-/Abstieg anwenden
+    let updated = [...players];
+    const allStandings = [];
+    for (let lg = 0; lg < numLeagues; lg++) allStandings.push(calcLeagueStandings(updated, matches, lg));
+    for (let lg = 0; lg < numLeagues; lg++) {
+      const cfg = leagueConfig[lg] || {
+        promote: 0,
+        relegate: 0
+      };
+      const st = allStandings[lg];
+      if (cfg.promote > 0 && lg > 0) st.slice(0, cfg.promote).forEach(s => {
+        updated = updated.map(p => p.id === s.id ? {
+          ...p,
+          league: lg - 1
+        } : p);
+      });
+      if (cfg.relegate > 0 && lg < numLeagues - 1) st.slice(-cfg.relegate).forEach(s => {
+        updated = updated.map(p => p.id === s.id ? {
+          ...p,
+          league: lg + 1
+        } : p);
+      });
+    }
+
+    // 4. Alles zusammen speichern
+    update({
+      archive: [archiveEntry, ...archive],
+      matches: [],
+      players: updated,
+      seasonName: newName,
+      seasonStarted: Date.now(),
+      hallOfFame: newHof
+    });
+    setConfirmAction(null);
+    sendNotification('new_season', {
+      seasonName: newName
+    });
+  }
   function applyPromotionRelegation() {
     if (!isAdmin) return;
     saveBackup(state, "before-promotion-relegation");
@@ -9211,6 +9299,39 @@ function LigaApp({
   }, "\uD83D\uDD04 Saison-Aktionen"), /*#__PURE__*/React.createElement("div", {
     className: "info-box",
     style: {
+      marginTop: 0,
+      borderLeftColor: "#8bc34a"
+    }
+  }, /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: "#8bc34a"
+    }
+  }, "\uD83C\uDFC1 Saison abschlie\xDFen:"), " Archiviert die aktuelle Saison ", /*#__PURE__*/React.createElement("em", null, "und"), " wendet den Auf-/Abstieg an. Das ist der normale Weg."), /*#__PURE__*/React.createElement("button", {
+    className: "big-btn",
+    style: {
+      margin: "14px 0 0",
+      fontSize: 18,
+      background: "#8bc34a",
+      color: "#0e1a0e"
+    },
+    onClick: () => setConfirmAction({
+      title: "Saison abschließen?",
+      message: "Die Saison \"" + seasonName + "\" wird archiviert, dann wird der Auf-/Abstieg angewendet. Danach startet eine neue Saison.",
+      input: {
+        value: "Saison " + (parseInt((seasonName.match(/\d+/) || [0])[0]) + 1)
+      },
+      placeholder: "Name der neuen Saison",
+      onConfirm: newName => archiveAndApplyPromotion(newName || seasonName)
+    })
+  }, "\uD83C\uDFC1 Saison abschlie\xDFen"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderTop: "1px solid var(--border)",
+      margin: "22px 0 14px",
+      paddingTop: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "info-box",
+    style: {
       marginTop: 0
     }
   }, /*#__PURE__*/React.createElement("strong", null, "Auf-/Abstieg anwenden:"), " Spieler werden gem\xE4\xDF deiner Konfiguration verschoben. Spielergebnisse werden gel\xF6scht. ", /*#__PURE__*/React.createElement("em", null, "Saison wird NICHT archiviert.")), /*#__PURE__*/React.createElement("button", {
@@ -9224,7 +9345,7 @@ function LigaApp({
       message: "Spieler werden gemäß deiner Konfiguration auf-/abgestuft. Alle Spielergebnisse der aktuellen Saison werden gelöscht. Die Saison wird hierbei NICHT archiviert!",
       onConfirm: applyPromotionRelegation
     })
-  }, "Auf-/Abstieg anwenden"), /*#__PURE__*/React.createElement("div", {
+  }, "Auf-/Abstieg anwenden")), /*#__PURE__*/React.createElement("div", {
     style: {
       borderTop: "1px solid var(--border)",
       margin: "22px 0 14px",
