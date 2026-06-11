@@ -15,7 +15,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v105";
+const APP_VERSION = "glus-v106";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -592,6 +592,44 @@ const ACHIEVEMENTS = [
   desc: "10 Niederlagen in Folge",
   category: "negative"
 },
+// ELO
+{
+  id: "elo_1100",
+  icon: "📈",
+  name: "Aufwärtstrend",
+  desc: "1100 ELO erreicht",
+  category: "elo"
+}, {
+  id: "elo_1200",
+  icon: "🚀",
+  name: "Durchstarter",
+  desc: "1200 ELO erreicht",
+  category: "elo"
+}, {
+  id: "elo_1300",
+  icon: "💎",
+  name: "Diamant",
+  desc: "1300 ELO erreicht",
+  category: "elo"
+}, {
+  id: "elo_1400",
+  icon: "🐐",
+  name: "GOAT",
+  desc: "1400 ELO erreicht",
+  category: "elo"
+}, {
+  id: "elo_giant_slayer",
+  icon: "🗡️",
+  name: "Riesentöter",
+  desc: "Spieler mit 150+ ELO Vorsprung besiegt",
+  category: "elo"
+}, {
+  id: "elo_underdog",
+  icon: "🐕",
+  name: "Underdog",
+  desc: "Bei unter 900 ELO ein Spiel gewonnen",
+  category: "elo"
+},
 // Drama
 {
   id: "titelverteidiger",
@@ -895,6 +933,62 @@ function calcAchievements(playerId, players, matches, archive, tournamentWinners
         if (twType === "spandaus_bester") earned.add("spandaus_bester");else if (twType === "glus_cup") earned.add("pokalsieger");else if (twType === "champions_league") earned.add("champion");
         // Spaßturnier gives no achievement
       }
+    }
+  }
+
+  // ============ ELO ACHIEVEMENTS ============
+  {
+    const eloAll = {};
+    const ensureElo = id => {
+      if (eloAll[id] === undefined) eloAll[id] = ELO_START;
+      return eloAll[id];
+    };
+    const chronoMatches = allMatchesRaw.filter(m => m.winner && m.playerA && m.playerB).sort((a, b) => (a.date || 0) - (b.date || 0));
+    let myPeak = ELO_START;
+    for (const m of chronoMatches) {
+      const ea = ensureElo(m.playerA),
+        eb = ensureElo(m.playerB);
+      const isMe = m.playerA === playerId || m.playerB === playerId;
+      const myElo = m.playerA === playerId ? ea : eb;
+      const oppElo = m.playerA === playerId ? eb : ea;
+      const oppId = m.playerA === playerId ? m.playerB : m.playerA;
+      const iWon = m.playerA === playerId && m.winner === "A" || m.playerB === playerId && m.winner === "B";
+      if (isMe && iWon) {
+        if (oppElo - myElo >= 150 && !earned.has("elo_giant_slayer")) {
+          earned.add("elo_giant_slayer");
+          details["elo_giant_slayer"] = `${getName(oppId)} besiegt (+${oppElo - myElo} ELO Vorsprung)`;
+        }
+        if (myElo < 900 && !earned.has("elo_underdog")) {
+          earned.add("elo_underdog");
+          details["elo_underdog"] = `Sieg bei ${myElo} ELO`;
+        }
+      }
+      const We_a = 1 / (Math.pow(10, -(ea - eb) / 400) + 1);
+      const W_a = m.winner === "A" ? 1 : 0;
+      const G = eloGFactor((m.cupsA || 0) - (m.cupsB || 0));
+      const delta = Math.round(ELO_K * G * (W_a - We_a));
+      eloAll[m.playerA] += delta;
+      eloAll[m.playerB] -= delta;
+      if (isMe) {
+        const newMyElo = m.playerA === playerId ? eloAll[m.playerA] : eloAll[m.playerB];
+        if (newMyElo > myPeak) myPeak = newMyElo;
+      }
+    }
+    if (myPeak >= 1100) {
+      earned.add("elo_1100");
+      details["elo_1100"] = `Peak: ${myPeak}`;
+    }
+    if (myPeak >= 1200) {
+      earned.add("elo_1200");
+      details["elo_1200"] = `Peak: ${myPeak}`;
+    }
+    if (myPeak >= 1300) {
+      earned.add("elo_1300");
+      details["elo_1300"] = `Peak: ${myPeak}`;
+    }
+    if (myPeak >= 1400) {
+      earned.add("elo_1400");
+      details["elo_1400"] = `Peak: ${myPeak}`;
     }
   }
   return applyManualAchievementOverrides({
@@ -1541,11 +1635,60 @@ function calcSkillScore(s) {
 // Odds for a player. Lower number = stronger favorite.
 // Format: 1.50, 2.30, 5.00 etc. (decimal odds)
 
-// Setzlisten-Score: benutzt calcAllPlayerStats wie die Tabelle
-function calcSeedScore(playerId, allStats) {
-  const s = allStats.find(x => x.id === playerId);
-  if (!s || s.games === 0) return null;
-  return calcSkillScore(s);
+// ============ ELO RATING SYSTEM ============
+// Basiert auf World Football Elo Ratings (eloratings.net), angepasst für Beer Pong
+// Startrating 1000, K=32, Cup-Differenz-Multiplikator G
+const ELO_START = 1000;
+const ELO_K = 32;
+function eloGFactor(cupDiff) {
+  const d = Math.abs(cupDiff);
+  if (d <= 3) return 1.0;
+  if (d <= 6) return 1.5;
+  if (d <= 9) return 1.75;
+  return 2.0;
+}
+
+// Berechnet ELO für alle Spieler chronologisch über alle Matches (aktuell + Archiv)
+// Gibt Map { playerId: { elo, games, peak } } zurück
+function calcEloRatings(players, currentMatches, archive) {
+  const toArr = v => Array.isArray(v) ? v : Object.values(v || {});
+  const arcMatches = toArr(archive).flatMap(a => toArr(a.matches));
+  const allMatches = [...arcMatches, ...toArr(currentMatches)].filter(m => m && m.winner && !m.isFunGame && m.playerA && m.playerB).sort((a, b) => (a.date || 0) - (b.date || 0)); // chronologisch!
+
+  const elo = {};
+  const ensure = id => {
+    if (!elo[id]) elo[id] = {
+      elo: ELO_START,
+      games: 0,
+      peak: ELO_START
+    };
+    return elo[id];
+  };
+  for (const m of allMatches) {
+    const a = ensure(m.playerA),
+      b = ensure(m.playerB);
+    const cupDiff = (m.cupsA || 0) - (m.cupsB || 0);
+    const We_a = 1 / (Math.pow(10, -(a.elo - b.elo) / 400) + 1);
+    const W_a = m.winner === "A" ? 1 : 0;
+    const G = eloGFactor(cupDiff);
+    const delta = Math.round(ELO_K * G * (W_a - We_a));
+    a.elo += delta;
+    b.elo -= delta;
+    a.games++;
+    b.games++;
+    if (a.elo > a.peak) a.peak = a.elo;
+    if (b.elo > b.peak) b.peak = b.elo;
+  }
+  return elo;
+}
+// ============ END ELO ============
+
+// Setzlisten-Score: basiert auf ELO-Rating
+// Gibt normalisierten Score zurück (ELO/1000 → ~0.8-1.4) oder null wenn keine Spiele
+function calcSeedScore(playerId, eloMap) {
+  const e = eloMap[playerId];
+  if (!e || e.games === 0) return null;
+  return e.elo;
 }
 function loadSeedStats() {
   const d = loadLiga() || {};
@@ -1553,9 +1696,7 @@ function loadSeedStats() {
   const ps = toArr(d.players);
   const ms = toArr(d.matches);
   const arc = toArr(d.archive);
-  const arcMatches = arc.flatMap(a => toArr(a.matches));
-  const allMatches = [...ms, ...arcMatches].filter(m => m && !m.isFunGame);
-  return calcAllPlayerStats(ps, allMatches);
+  return calcEloRatings(ps, ms, arc);
 }
 function calcOdds(score) {
   // Probability → Odds: odds = 1 / probability, with house edge of ~5%
@@ -5654,6 +5795,7 @@ function AchievementsGrid({
     games: "📜 Spiele",
     social: "🤝 Sozial",
     season: "👑 Saison",
+    elo: "⚡ ELO",
     negative: "💔 Negativ",
     drama: "🎭 Drama"
   };
@@ -6592,7 +6734,10 @@ function LigaApp({
         case "cupsPerGame":
           return b.cupsPerGame - a.cupsPerGame;
         case "odds":
-          return calcOdds(calcSkillScore(calcLifetimeStatsLastN(a.id, matches, archive, 50))) - calcOdds(calcSkillScore(calcLifetimeStatsLastN(b.id, matches, archive, 50)));
+          {
+            const em = calcEloRatings(players, matches, archive);
+            return (em[b.id]?.elo ?? ELO_START) - (em[a.id]?.elo ?? ELO_START);
+          }
         default:
           return 0;
       }
@@ -8661,44 +8806,45 @@ function LigaApp({
   }, "Diff"), /*#__PURE__*/React.createElement("th", {
     className: compareSort === "odds" ? "sort-active" : "",
     onClick: () => setCompareSort("odds"),
-    title: "Wettquote (niedriger = Favorit)"
-  }, "\uD83D\uDCB0 Quote"))), /*#__PURE__*/React.createElement("tbody", null, sortedStats.map((s, rank) => {
-    const lifetimeStats = calcLifetimeStatsLastN(s.id, matches, archive, 50);
-    const score = calcSkillScore(lifetimeStats);
-    const odds = calcOdds(score);
-    return /*#__PURE__*/React.createElement("tr", {
-      key: s.id,
-      style: s.id === currentUser?.linkedPlayerId ? {
-        background: "rgba(240,192,64,0.07)",
-        outline: "1px solid rgba(240,192,64,0.3)"
-      } : {}
-    }, /*#__PURE__*/React.createElement("td", {
-      className: "compare-rank"
-    }, rank + 1), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
-      className: "player-link",
-      onClick: () => setViewProfileId(s.id),
-      style: {
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8
-      }
-    }, /*#__PURE__*/React.createElement(Avatar, {
-      player: playerById[s.id],
-      size: "sm"
-    }), s.name)), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
-      className: "compare-league-tag"
-    }, ligaName(s.league))), /*#__PURE__*/React.createElement("td", null, s.games), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("strong", {
-      style: {
-        color: "var(--gold)"
-      }
-    }, s.wins)), /*#__PURE__*/React.createElement("td", null, s.losses), /*#__PURE__*/React.createElement("td", null, s.games > 0 ? s.winRate.toFixed(0) + "%" : "—"), /*#__PURE__*/React.createElement("td", null, s.cupsFor), /*#__PURE__*/React.createElement("td", null, s.cupsAgainst), /*#__PURE__*/React.createElement("td", null, s.games > 0 ? s.cupsPerGame.toFixed(1) : "—"), /*#__PURE__*/React.createElement("td", {
-      className: s.diff > 0 ? "diff-pos" : s.diff < 0 ? "diff-neg" : "diff-neu"
-    }, s.diff > 0 ? "+" : "", s.diff), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("strong", {
-      style: {
-        color: odds < 1.8 ? "#8bc34a" : odds < 3 ? "var(--gold)" : "#ff8a8a"
-      }
-    }, odds.toFixed(2))));
-  }))))), compareTab === "h2h" && (() => {
+    title: "ELO-Rating (h\xF6her = st\xE4rker)"
+  }, "\u26A1 ELO"))), /*#__PURE__*/React.createElement("tbody", null, (() => {
+    const eloMap = calcEloRatings(players, matches, archive);
+    return sortedStats.map((s, rank) => {
+      const playerElo = eloMap[s.id]?.elo ?? ELO_START;
+      return /*#__PURE__*/React.createElement("tr", {
+        key: s.id,
+        style: s.id === currentUser?.linkedPlayerId ? {
+          background: "rgba(240,192,64,0.07)",
+          outline: "1px solid rgba(240,192,64,0.3)"
+        } : {}
+      }, /*#__PURE__*/React.createElement("td", {
+        className: "compare-rank"
+      }, rank + 1), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
+        className: "player-link",
+        onClick: () => setViewProfileId(s.id),
+        style: {
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 8
+        }
+      }, /*#__PURE__*/React.createElement(Avatar, {
+        player: playerById[s.id],
+        size: "sm"
+      }), s.name)), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
+        className: "compare-league-tag"
+      }, ligaName(s.league))), /*#__PURE__*/React.createElement("td", null, s.games), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("strong", {
+        style: {
+          color: "var(--gold)"
+        }
+      }, s.wins)), /*#__PURE__*/React.createElement("td", null, s.losses), /*#__PURE__*/React.createElement("td", null, s.games > 0 ? s.winRate.toFixed(0) + "%" : "—"), /*#__PURE__*/React.createElement("td", null, s.cupsFor), /*#__PURE__*/React.createElement("td", null, s.cupsAgainst), /*#__PURE__*/React.createElement("td", null, s.games > 0 ? s.cupsPerGame.toFixed(1) : "—"), /*#__PURE__*/React.createElement("td", {
+        className: s.diff > 0 ? "diff-pos" : s.diff < 0 ? "diff-neg" : "diff-neu"
+      }, s.diff > 0 ? "+" : "", s.diff), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("strong", {
+        style: {
+          color: playerElo >= 1100 ? "#8bc34a" : playerElo >= 950 ? "var(--gold)" : "#ff8a8a"
+        }
+      }, playerElo)));
+    });
+  })())))), compareTab === "h2h" && (() => {
     if (players.length < 2) return /*#__PURE__*/React.createElement("div", {
       className: "liga-empty"
     }, "Du brauchst mindestens 2 Spieler.");
@@ -10874,19 +11020,19 @@ function AdminApp({
     const filled = safeNamesArr.slice(0, numPlayers).map((n, i) => (n || "").trim() || `${label} ${i + 1}`);
     let ordered;
     if (withSeeding && numGroups > 1) {
-      const allStats = loadSeedStats();
+      const eloMap = loadSeedStats();
       const safeTp = Array.isArray(teamPlayers) ? teamPlayers : Object.values(teamPlayers || {});
       const tSize = parseInt(tournamentMode) || 1;
       function teamScore(idx) {
         if (tournamentMode === "1v1") {
           const p = (players || []).find(x => x.name === filled[idx]);
-          return p ? calcSeedScore(p.id, allStats) ?? -1 : -1;
+          return p ? calcSeedScore(p.id, eloMap) ?? -1 : -1;
         }
         const tp = Array.isArray(safeTp[idx]) ? safeTp[idx] : [];
-        const ls = tp.filter(p => p?.id).map(p => calcSeedScore(p.id, allStats)).filter(s => s !== null);
-        if (!ls.length) return -1;
-        const unk = Math.max(0, tSize - ls.length);
-        return [...ls, ...Array(unk).fill(0.5)].reduce((a, b) => a + b, 0) / (ls.length + unk);
+        const elos = tp.filter(p => p?.id).map(p => calcSeedScore(p.id, eloMap)).filter(s => s !== null);
+        if (!elos.length) return -1;
+        const unk = Math.max(0, tSize - elos.length);
+        return [...elos, ...Array(unk).fill(ELO_START)].reduce((a, b) => a + b, 0) / (elos.length + unk);
       }
       const indices = filled.map((_, i) => i);
       const seeded = indices.filter(i => teamScore(i) >= 0).sort((a, b) => teamScore(b) - teamScore(a)).slice(0, numGroups);
@@ -11331,35 +11477,35 @@ function AdminApp({
       idx: i
     })).filter(x => x.name);
     if (filledNames.length < numGroups) return null;
-    const allStats = loadSeedStats();
+    const eloMap = loadSeedStats();
     const safeTp2 = Array.isArray(teamPlayers) ? teamPlayers : Object.values(teamPlayers || {});
     const is2v2 = (parseInt(tournamentMode) || 1) >= 2;
     const teamSizeN2 = parseInt(tournamentMode) || 1;
-    function getTeamScore(idx) {
+    function getTeamElo(idx) {
       if (is2v2) {
         const tp = Array.isArray(safeTp2[idx]) ? safeTp2[idx] : [];
-        const ls = tp.filter(p => p?.id).map(p => calcSeedScore(p.id, allStats)).filter(s => s !== null);
-        if (!ls.length) return -1;
-        const unk = Math.max(0, teamSizeN2 - ls.length);
-        return [...ls, ...Array(unk).fill(0.5)].reduce((a, b) => a + b, 0) / (ls.length + unk);
+        const elos = tp.filter(p => p?.id).map(p => calcSeedScore(p.id, eloMap)).filter(s => s !== null);
+        if (!elos.length) return -1;
+        const unk = Math.max(0, teamSizeN2 - elos.length);
+        // Fremde Spieler zählen als 1000 (Start-ELO)
+        return Math.round([...elos, ...Array(unk).fill(ELO_START)].reduce((a, b) => a + b, 0) / (elos.length + unk));
       } else {
         const p = (players || []).find(x => x.name === filledNames.find((_, i) => i === idx)?.name);
-        return p ? calcSeedScore(p.id, allStats) ?? -1 : -1;
+        return p ? calcSeedScore(p.id, eloMap) ?? -1 : -1;
       }
     }
     const scored = filledNames.map(({
       name,
       idx
     }) => {
-      const score = getTeamScore(idx);
+      const elo = getTeamElo(idx);
       return {
         name,
-        score,
-        odds: score > 0 ? calcOdds(score) : null
+        elo
       };
-    }).sort((a, b) => a.score < 0 && b.score < 0 ? 0 : a.score < 0 ? 1 : b.score < 0 ? -1 : a.odds - b.odds);
+    }).sort((a, b) => a.elo < 0 && b.elo < 0 ? 0 : a.elo < 0 ? 1 : b.elo < 0 ? -1 : b.elo - a.elo);
     const seeds = scored.slice(0, numGroups);
-    if (!seeds.some(s => s.score > 0)) return null;
+    if (!seeds.some(s => s.elo > 0)) return null;
     return /*#__PURE__*/React.createElement("div", {
       style: {
         background: "rgba(240,192,64,0.08)",
@@ -11377,7 +11523,7 @@ function AdminApp({
         color: "var(--gold)",
         marginBottom: 8
       }
-    }, "\uD83C\uDFC5 Gruppenk\xF6pfe"), seeds.map((s, i) => /*#__PURE__*/React.createElement("div", {
+    }, "\uD83C\uDFC5 Gruppenk\xF6pfe (nach ELO)"), seeds.map((s, i) => /*#__PURE__*/React.createElement("div", {
       key: i,
       style: {
         display: "flex",
@@ -11404,15 +11550,15 @@ function AdminApp({
       style: {
         fontSize: 12,
         fontWeight: 700,
-        color: s.score > 0 ? "var(--text)" : "var(--dim)"
+        color: s.elo > 0 ? "var(--text)" : "var(--dim)"
       }
     }, s.name)), /*#__PURE__*/React.createElement("span", {
       style: {
         fontFamily: "'Barlow Condensed',sans-serif",
         fontSize: 12,
-        color: s.odds ? "#8bc34a" : "var(--dim)"
+        color: s.elo > 0 ? "#8bc34a" : "var(--dim)"
       }
-    }, s.odds ? `${s.odds.toFixed(2)}x` : "random"))));
+    }, s.elo > 0 ? `⚡ ${s.elo}` : "random"))));
   })(), /*#__PURE__*/React.createElement("button", {
     className: "big-btn",
     onClick: generate,
