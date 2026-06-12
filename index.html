@@ -27,7 +27,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v109";
+const APP_VERSION = "glus-v110";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -955,7 +955,9 @@ function calcAchievements(playerId, players, matches, archive, tournamentWinners
       if (eloAll[id] === undefined) eloAll[id] = ELO_START;
       return eloAll[id];
     };
-    const chronoMatches = allMatchesRaw.filter(m => m.winner && m.playerA && m.playerB).sort((a, b) => (a.date || 0) - (b.date || 0));
+    // Inkl. Spaßspiele (ELO zählt alles)
+    const allMatchesInclFun = [...(matches || []), ...(archive || []).flatMap(a => a.matches || [])];
+    const chronoMatches = allMatchesInclFun.filter(m => m.winner && m.playerA && m.playerB).sort((a, b) => (a.date || 0) - (b.date || 0));
     let myPeak = ELO_START;
     for (const m of chronoMatches) {
       const ea = ensureElo(m.playerA),
@@ -1715,7 +1717,7 @@ function eloGFactor(cupDiff) {
 function calcEloRatings(players, currentMatches, archive) {
   const toArr = v => Array.isArray(v) ? v : Object.values(v || {});
   const arcMatches = toArr(archive).flatMap(a => toArr(a.matches));
-  const allMatches = [...arcMatches, ...toArr(currentMatches)].filter(m => m && m.winner && !m.isFunGame && m.playerA && m.playerB).sort((a, b) => (a.date || 0) - (b.date || 0)); // chronologisch!
+  const allMatches = [...arcMatches, ...toArr(currentMatches)].filter(m => m && m.winner && m.playerA && m.playerB).sort((a, b) => (a.date || 0) - (b.date || 0)); // chronologisch! (inkl. Spaßspiele)
 
   const elo = {};
   const ensure = id => {
@@ -6297,7 +6299,7 @@ function ProfileView({
   }, "Diff"), /*#__PURE__*/React.createElement("div", {
     className: "profile-stat-mini-value " + (lifetimeStats.diff > 0 ? "diff-pos" : lifetimeStats.diff < 0 ? "diff-neg" : "")
   }, lifetimeStats.diff > 0 ? "+" : "", lifetimeStats.diff))))), (() => {
-    const ligaMatches = [...matches, ...(archive || []).flatMap(a => a.matches || [])].filter(m => m.winner && !m.isFunGame);
+    const ligaMatches = [...matches, ...(archive || []).flatMap(a => a.matches || [])].filter(m => m.winner);
     const opponents = players.filter(p => p.id !== player.id);
     const h2hData = opponents.map(opp => {
       const ms = ligaMatches.filter(m => m.playerA === player.id && m.playerB === opp.id || m.playerB === player.id && m.playerA === opp.id);
