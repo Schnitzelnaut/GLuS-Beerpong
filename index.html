@@ -27,7 +27,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v111";
+const APP_VERSION = "glus-v112";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -957,7 +957,13 @@ function calcAchievements(playerId, players, matches, archive, tournamentWinners
     };
     // Inkl. Spaßspiele (ELO zählt alles)
     const allMatchesInclFun = [...(matches || []), ...(archive || []).flatMap(a => a.matches || [])];
-    const chronoMatches = allMatchesInclFun.filter(m => m.winner && m.playerA && m.playerB).sort((a, b) => (a.date || 0) - (b.date || 0));
+    const chronoMatches = allMatchesInclFun.filter(m => {
+      if (!m.winner || !m.playerA || !m.playerB) return false;
+      // NUR 1v1
+      const tA = (m.playersA && m.playersA.length ? m.playersA : [m.playerA]).filter(Boolean);
+      const tB = (m.playersB && m.playersB.length ? m.playersB : [m.playerB]).filter(Boolean);
+      return tA.length === 1 && tB.length === 1;
+    }).sort((a, b) => (a.date || 0) - (b.date || 0));
     let myPeak = ELO_START;
     for (const m of chronoMatches) {
       const ea = ensureElo(m.playerA),
@@ -1729,30 +1735,24 @@ function calcEloRatings(players, currentMatches, archive) {
     return elo[id];
   };
   for (const m of allMatches) {
-    // Team-Mitglieder bestimmen (Spaß-Spiele können 2v2 sein)
+    // Team-Mitglieder bestimmen
     const teamA = (m.playersA && m.playersA.length ? m.playersA : [m.playerA]).filter(Boolean);
     const teamB = (m.playersB && m.playersB.length ? m.playersB : [m.playerB]).filter(Boolean);
-    if (!teamA.length || !teamB.length) continue;
-    const objA = teamA.map(ensure),
-      objB = teamB.map(ensure);
-    const avgA = objA.reduce((s, o) => s + o.elo, 0) / objA.length;
-    const avgB = objB.reduce((s, o) => s + o.elo, 0) / objB.length;
+    // NUR 1v1 zählt in die ELO — Teamspiele (2v2+) werden übersprungen
+    if (teamA.length !== 1 || teamB.length !== 1) continue;
+    const a = ensure(teamA[0]),
+      b = ensure(teamB[0]);
     const cupDiff = (m.cupsA || 0) - (m.cupsB || 0);
-    const We_a = 1 / (Math.pow(10, -(avgA - avgB) / 400) + 1);
+    const We_a = 1 / (Math.pow(10, -(a.elo - b.elo) / 400) + 1);
     const W_a = m.winner === "A" ? 1 : 0;
     const G = eloGFactor(cupDiff);
     const delta = Math.round(ELO_K * G * (W_a - We_a));
-    // Jeder Spieler des Teams bekommt die gleiche Änderung
-    objA.forEach(o => {
-      o.elo += delta;
-      o.games++;
-      if (o.elo > o.peak) o.peak = o.elo;
-    });
-    objB.forEach(o => {
-      o.elo -= delta;
-      o.games++;
-      if (o.elo > o.peak) o.peak = o.elo;
-    });
+    a.elo += delta;
+    b.elo -= delta;
+    a.games++;
+    b.games++;
+    if (a.elo > a.peak) a.peak = a.elo;
+    if (b.elo > b.peak) b.peak = b.elo;
   }
   return elo;
 }
@@ -8083,13 +8083,12 @@ function LigaApp({
     style: {
       marginBottom: 12
     }
-  }, "\uD83C\uDFAE Spa\xDF-Spiel \u2014 z\xE4hlt f\xFCr den allgemeinen Vergleich, den Direktvergleich und die ELO, aber ", /*#__PURE__*/React.createElement("strong", null, "nicht"), " f\xFCr die Liga-Tabelle oder Achievements."), matchIsFunGame && matchPlayersA.slice(0, matchTeamSize).every(p => p) && matchPlayersB.slice(0, matchTeamSize).every(p => p) && (() => {
+  }, "\uD83C\uDFAE Spa\xDF-Spiel \u2014 z\xE4hlt f\xFCr den allgemeinen Vergleich und den Direktvergleich, aber ", /*#__PURE__*/React.createElement("strong", null, "nicht"), " f\xFCr die Liga-Tabelle oder Achievements. Die ELO \xE4ndert sich nur bei 1v1-Spielen."), matchIsFunGame && matchTeamSize === 1 && matchPlayersA[0] && matchPlayersB[0] && (() => {
     const eloMap = calcEloRatings(players, matches, archive);
-    const teamA = matchPlayersA.slice(0, matchTeamSize);
-    const teamB = matchPlayersB.slice(0, matchTeamSize);
-    const avgElo = ids => Math.round(ids.reduce((s, id) => s + (eloMap[id]?.elo ?? ELO_START), 0) / ids.length);
-    const eloA = avgElo(teamA),
-      eloB = avgElo(teamB);
+    const idA = matchPlayersA[0],
+      idB = matchPlayersB[0];
+    const eloA = eloMap[idA]?.elo ?? ELO_START;
+    const eloB = eloMap[idB]?.elo ?? ELO_START;
     const We_A = 1 / (Math.pow(10, -(eloA - eloB) / 400) + 1);
     const We_B = 1 - We_A;
     const cA = parseInt(matchCupsA) || 0,
@@ -8100,9 +8099,8 @@ function LigaApp({
       const G = eloGFactor(cupDiff);
       return Math.round(ELO_K * G * ((winnerIsA ? 1 : 0) - We_A));
     }
-    const nameA = teamA.map(id => playerById[id]?.name).filter(Boolean).join(" + ");
-    const nameB = teamB.map(id => playerById[id]?.name).filter(Boolean).join(" + ");
-    const is2v2 = matchTeamSize >= 2;
+    const nameA = playerById[idA]?.name || "Team A";
+    const nameB = playerById[idB]?.name || "Team B";
     return /*#__PURE__*/React.createElement("div", {
       style: {
         margin: "12px 0",
@@ -8130,7 +8128,7 @@ function LigaApp({
         fontWeight: 800,
         color: eloA >= eloB ? "#8bc34a" : "var(--text)"
       }
-    }, "\u26A1 ", eloA), !is2v2 && /*#__PURE__*/React.createElement("div", {
+    }, "\u26A1 ", eloA), /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 9,
         color: "var(--dim)"
@@ -8163,7 +8161,7 @@ function LigaApp({
         fontWeight: 800,
         color: eloB >= eloA ? "#8bc34a" : "var(--text)"
       }
-    }, "\u26A1 ", eloB), !is2v2 && /*#__PURE__*/React.createElement("div", {
+    }, "\u26A1 ", eloB), /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 9,
         color: "var(--dim)"
@@ -8193,7 +8191,7 @@ function LigaApp({
         textTransform: "uppercase",
         marginBottom: 6
       }
-    }, "\u26A1 ELO auf dem Spiel", is2v2 ? " (pro Spieler)" : ""), hasCups ? /*#__PURE__*/React.createElement("div", {
+    }, "\u26A1 ELO auf dem Spiel"), hasCups ? /*#__PURE__*/React.createElement("div", {
       style: {
         display: "grid",
         gridTemplateColumns: "1fr 1fr",
@@ -8211,7 +8209,7 @@ function LigaApp({
       style: {
         color: "var(--green2)"
       }
-    }, "Team A gewinnt:"), /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("strong", {
+    }, nameA, " gewinnt:"), /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("strong", {
       style: {
         color: "#8bc34a"
       }
@@ -8230,7 +8228,7 @@ function LigaApp({
       style: {
         color: "var(--green2)"
       }
-    }, "Team B gewinnt:"), /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("strong", {
+    }, nameB, " gewinnt:"), /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("strong", {
       style: {
         color: "#8bc34a"
       }
@@ -8258,7 +8256,7 @@ function LigaApp({
         textTransform: "uppercase",
         letterSpacing: 1
       }
-    }, "Sieg Team A"), /*#__PURE__*/React.createElement("div", null, "knapp: ", /*#__PURE__*/React.createElement("strong", {
+    }, "Sieg ", nameA), /*#__PURE__*/React.createElement("div", null, "knapp: ", /*#__PURE__*/React.createElement("strong", {
       style: {
         color: "#8bc34a"
       }
@@ -8279,7 +8277,7 @@ function LigaApp({
         textTransform: "uppercase",
         letterSpacing: 1
       }
-    }, "Sieg Team B"), /*#__PURE__*/React.createElement("div", null, "knapp: ", /*#__PURE__*/React.createElement("strong", {
+    }, "Sieg ", nameB), /*#__PURE__*/React.createElement("div", null, "knapp: ", /*#__PURE__*/React.createElement("strong", {
       style: {
         color: "#8bc34a"
       }
@@ -8287,15 +8285,14 @@ function LigaApp({
       style: {
         color: "#8bc34a"
       }
-    }, "+", -eloDelta(false, 10))))), is2v2 && /*#__PURE__*/React.createElement("div", {
-      style: {
-        fontSize: 10,
-        color: "var(--dim)",
-        marginTop: 6,
-        textAlign: "center"
-      }
-    }, "Bei 2v2 bekommt jeder Spieler des Teams die gleiche ELO-\xC4nderung.")));
-  })(), players.length < 2 ? /*#__PURE__*/React.createElement("div", {
+    }, "+", -eloDelta(false, 10)))))));
+  })(), matchIsFunGame && matchTeamSize >= 2 && matchPlayersA.slice(0, matchTeamSize).every(p => p) && matchPlayersB.slice(0, matchTeamSize).every(p => p) && /*#__PURE__*/React.createElement("div", {
+    className: "info-box",
+    style: {
+      marginBottom: 12,
+      fontSize: 12
+    }
+  }, "\u2139\uFE0F 2v2-Spiele z\xE4hlen nicht in die ELO \u2014 nur 1v1-Spiele wirken sich auf das Rating aus."), players.length < 2 ? /*#__PURE__*/React.createElement("div", {
     className: "info-box"
   }, "Du brauchst mindestens 2 Spieler.") : matchIsFunGame ?
   /*#__PURE__*/
