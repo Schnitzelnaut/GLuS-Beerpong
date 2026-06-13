@@ -27,7 +27,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v110";
+const APP_VERSION = "glus-v111";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -1717,7 +1717,7 @@ function eloGFactor(cupDiff) {
 function calcEloRatings(players, currentMatches, archive) {
   const toArr = v => Array.isArray(v) ? v : Object.values(v || {});
   const arcMatches = toArr(archive).flatMap(a => toArr(a.matches));
-  const allMatches = [...arcMatches, ...toArr(currentMatches)].filter(m => m && m.winner && m.playerA && m.playerB).sort((a, b) => (a.date || 0) - (b.date || 0)); // chronologisch! (inkl. Spaßspiele)
+  const allMatches = [...arcMatches, ...toArr(currentMatches)].filter(m => m && m.winner && (m.playerA || m.playersA && m.playersA.length)).sort((a, b) => (a.date || 0) - (b.date || 0)); // chronologisch! (inkl. Spaßspiele)
 
   const elo = {};
   const ensure = id => {
@@ -1729,19 +1729,30 @@ function calcEloRatings(players, currentMatches, archive) {
     return elo[id];
   };
   for (const m of allMatches) {
-    const a = ensure(m.playerA),
-      b = ensure(m.playerB);
+    // Team-Mitglieder bestimmen (Spaß-Spiele können 2v2 sein)
+    const teamA = (m.playersA && m.playersA.length ? m.playersA : [m.playerA]).filter(Boolean);
+    const teamB = (m.playersB && m.playersB.length ? m.playersB : [m.playerB]).filter(Boolean);
+    if (!teamA.length || !teamB.length) continue;
+    const objA = teamA.map(ensure),
+      objB = teamB.map(ensure);
+    const avgA = objA.reduce((s, o) => s + o.elo, 0) / objA.length;
+    const avgB = objB.reduce((s, o) => s + o.elo, 0) / objB.length;
     const cupDiff = (m.cupsA || 0) - (m.cupsB || 0);
-    const We_a = 1 / (Math.pow(10, -(a.elo - b.elo) / 400) + 1);
+    const We_a = 1 / (Math.pow(10, -(avgA - avgB) / 400) + 1);
     const W_a = m.winner === "A" ? 1 : 0;
     const G = eloGFactor(cupDiff);
     const delta = Math.round(ELO_K * G * (W_a - We_a));
-    a.elo += delta;
-    b.elo -= delta;
-    a.games++;
-    b.games++;
-    if (a.elo > a.peak) a.peak = a.elo;
-    if (b.elo > b.peak) b.peak = b.elo;
+    // Jeder Spieler des Teams bekommt die gleiche Änderung
+    objA.forEach(o => {
+      o.elo += delta;
+      o.games++;
+      if (o.elo > o.peak) o.peak = o.elo;
+    });
+    objB.forEach(o => {
+      o.elo -= delta;
+      o.games++;
+      if (o.elo > o.peak) o.peak = o.elo;
+    });
   }
   return elo;
 }
@@ -8072,7 +8083,219 @@ function LigaApp({
     style: {
       marginBottom: 12
     }
-  }, "\uD83C\uDFAE Spa\xDF-Spiel \u2014 z\xE4hlt f\xFCr den allgemeinen Vergleich, aber ", /*#__PURE__*/React.createElement("strong", null, "nicht"), " f\xFCr die Liga-Tabelle, Achievements oder den Direktvergleich."), players.length < 2 ? /*#__PURE__*/React.createElement("div", {
+  }, "\uD83C\uDFAE Spa\xDF-Spiel \u2014 z\xE4hlt f\xFCr den allgemeinen Vergleich, den Direktvergleich und die ELO, aber ", /*#__PURE__*/React.createElement("strong", null, "nicht"), " f\xFCr die Liga-Tabelle oder Achievements."), matchIsFunGame && matchPlayersA.slice(0, matchTeamSize).every(p => p) && matchPlayersB.slice(0, matchTeamSize).every(p => p) && (() => {
+    const eloMap = calcEloRatings(players, matches, archive);
+    const teamA = matchPlayersA.slice(0, matchTeamSize);
+    const teamB = matchPlayersB.slice(0, matchTeamSize);
+    const avgElo = ids => Math.round(ids.reduce((s, id) => s + (eloMap[id]?.elo ?? ELO_START), 0) / ids.length);
+    const eloA = avgElo(teamA),
+      eloB = avgElo(teamB);
+    const We_A = 1 / (Math.pow(10, -(eloA - eloB) / 400) + 1);
+    const We_B = 1 - We_A;
+    const cA = parseInt(matchCupsA) || 0,
+      cB = parseInt(matchCupsB) || 0;
+    const hasCups = matchCupsA !== "" || matchCupsB !== "";
+    const diffNow = Math.abs(cA - cB);
+    function eloDelta(winnerIsA, cupDiff) {
+      const G = eloGFactor(cupDiff);
+      return Math.round(ELO_K * G * ((winnerIsA ? 1 : 0) - We_A));
+    }
+    const nameA = teamA.map(id => playerById[id]?.name).filter(Boolean).join(" + ");
+    const nameB = teamB.map(id => playerById[id]?.name).filter(Boolean).join(" + ");
+    const is2v2 = matchTeamSize >= 2;
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        margin: "12px 0",
+        padding: "12px 14px",
+        background: "rgba(10,28,10,0.5)",
+        border: "1px solid var(--border)",
+        borderRadius: 6
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr auto 1fr",
+        gap: 8,
+        alignItems: "center",
+        marginBottom: 10
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: "center"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "'Barlow Condensed',sans-serif",
+        fontSize: 20,
+        fontWeight: 800,
+        color: eloA >= eloB ? "#8bc34a" : "var(--text)"
+      }
+    }, "\u26A1 ", eloA), !is2v2 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "var(--dim)"
+      }
+    }, getEloRank(eloA).name), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "var(--green2)",
+        marginTop: 2
+      }
+    }, nameA), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "var(--dim)"
+      }
+    }, Math.round(We_A * 100), "% Chance")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "'Permanent Marker',cursive",
+        fontSize: 16,
+        color: "var(--dim)"
+      }
+    }, "VS"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: "center"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "'Barlow Condensed',sans-serif",
+        fontSize: 20,
+        fontWeight: 800,
+        color: eloB >= eloA ? "#8bc34a" : "var(--text)"
+      }
+    }, "\u26A1 ", eloB), !is2v2 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "var(--dim)"
+      }
+    }, getEloRank(eloB).name), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "var(--green2)",
+        marginTop: 2
+      }
+    }, nameB), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 9,
+        color: "var(--dim)"
+      }
+    }, Math.round(We_B * 100), "% Chance"))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        borderTop: "1px solid rgba(255,255,255,0.06)",
+        paddingTop: 8
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "var(--gold)",
+        fontFamily: "'Barlow Condensed',sans-serif",
+        letterSpacing: 1.5,
+        textTransform: "uppercase",
+        marginBottom: 6
+      }
+    }, "\u26A1 ELO auf dem Spiel", is2v2 ? " (pro Spieler)" : ""), hasCups ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: 6,
+        fontSize: 12
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: "center",
+        padding: "6px",
+        background: "rgba(139,195,74,0.06)",
+        borderRadius: 4
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--green2)"
+      }
+    }, "Team A gewinnt:"), /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("strong", {
+      style: {
+        color: "#8bc34a"
+      }
+    }, "+", eloDelta(true, diffNow)), " / ", /*#__PURE__*/React.createElement("strong", {
+      style: {
+        color: "#ff8a8a"
+      }
+    }, -eloDelta(true, diffNow))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: "center",
+        padding: "6px",
+        background: "rgba(139,195,74,0.06)",
+        borderRadius: 4
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--green2)"
+      }
+    }, "Team B gewinnt:"), /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("strong", {
+      style: {
+        color: "#8bc34a"
+      }
+    }, "+", -eloDelta(false, diffNow)), " / ", /*#__PURE__*/React.createElement("strong", {
+      style: {
+        color: "#ff8a8a"
+      }
+    }, eloDelta(false, diffNow)))) : /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "repeat(2,1fr)",
+        gap: 6,
+        fontSize: 11
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: "5px 8px",
+        background: "rgba(139,195,74,0.05)",
+        borderRadius: 4
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        color: "var(--dim)",
+        fontSize: 9,
+        textTransform: "uppercase",
+        letterSpacing: 1
+      }
+    }, "Sieg Team A"), /*#__PURE__*/React.createElement("div", null, "knapp: ", /*#__PURE__*/React.createElement("strong", {
+      style: {
+        color: "#8bc34a"
+      }
+    }, "+", eloDelta(true, 2)), " \xB7 10:0: ", /*#__PURE__*/React.createElement("strong", {
+      style: {
+        color: "#8bc34a"
+      }
+    }, "+", eloDelta(true, 10)))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: "5px 8px",
+        background: "rgba(139,195,74,0.05)",
+        borderRadius: 4
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        color: "var(--dim)",
+        fontSize: 9,
+        textTransform: "uppercase",
+        letterSpacing: 1
+      }
+    }, "Sieg Team B"), /*#__PURE__*/React.createElement("div", null, "knapp: ", /*#__PURE__*/React.createElement("strong", {
+      style: {
+        color: "#8bc34a"
+      }
+    }, "+", -eloDelta(false, 2)), " \xB7 10:0: ", /*#__PURE__*/React.createElement("strong", {
+      style: {
+        color: "#8bc34a"
+      }
+    }, "+", -eloDelta(false, 10))))), is2v2 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        color: "var(--dim)",
+        marginTop: 6,
+        textAlign: "center"
+      }
+    }, "Bei 2v2 bekommt jeder Spieler des Teams die gleiche ELO-\xC4nderung.")));
+  })(), players.length < 2 ? /*#__PURE__*/React.createElement("div", {
     className: "info-box"
   }, "Du brauchst mindestens 2 Spieler.") : matchIsFunGame ?
   /*#__PURE__*/
