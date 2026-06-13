@@ -27,7 +27,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v112";
+const APP_VERSION = "glus-v113";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -1718,12 +1718,81 @@ function eloGFactor(cupDiff) {
   return 2.0;
 }
 
-// Berechnet ELO für alle Spieler chronologisch über alle Matches (aktuell + Archiv)
+// Globaler Cache aller Turniere (wird vom Tournaments-Hub befüllt) für ELO-Berechnung
+let TOURNAMENTS_CACHE = {};
+function setTournamentsCache(obj) {
+  TOURNAMENTS_CACHE = obj || {};
+}
+
+// Extrahiert abgeschlossene 1v1-Turnierspiele als ELO-taugliche Matches.
+// Teamname wird über Liga-Spielernamen zu IDs gemappt (nur 1v1: Teamname === Spielername).
+function extractTournamentEloMatches(players) {
+  const nameToId = {};
+  (players || []).forEach(p => {
+    nameToId[(p.name || "").trim().toLowerCase()] = p.id;
+  });
+  const out = [];
+  const toArr = v => Array.isArray(v) ? v : Object.values(v || {});
+  for (const t of Object.values(TOURNAMENTS_CACHE)) {
+    if (!t || t.mode !== "1v1") continue; // nur 1v1-Turniere
+    const baseDate = t.createdAt || 0;
+
+    // Gruppenspiele
+    const groups = toArr(t.groups);
+    for (const g of groups) {
+      const teams = Array.isArray(g.teams) ? g.teams : Object.values(g.teams || {});
+      const gms = Array.isArray(g.matches) ? g.matches : Object.values(g.matches || {});
+      for (const m of gms) {
+        if (m.winner !== "A" && m.winner !== "B") continue;
+        const ia = m.a ?? m.home ?? 0,
+          ib = m.b ?? m.away ?? 1;
+        const nameA = teams[ia],
+          nameB = teams[ib];
+        if (!nameA || !nameB) continue;
+        const idA = nameToId[String(nameA).trim().toLowerCase()];
+        const idB = nameToId[String(nameB).trim().toLowerCase()];
+        if (!idA || !idB || idA === idB) continue;
+        out.push({
+          date: baseDate,
+          playerA: idA,
+          playerB: idB,
+          cupsA: m.cupsA ?? m.cupsHome ?? 0,
+          cupsB: m.cupsB ?? m.cupsAway ?? 0,
+          winner: m.winner,
+          isTournament: true
+        });
+      }
+    }
+
+    // KO-Spiele
+    const koMs = toArr(t.koMatches);
+    for (const m of koMs) {
+      if (m.winner !== "A" && m.winner !== "B") continue;
+      if (!m.teamA || !m.teamB) continue;
+      const idA = nameToId[String(m.teamA.name || "").trim().toLowerCase()];
+      const idB = nameToId[String(m.teamB.name || "").trim().toLowerCase()];
+      if (!idA || !idB || idA === idB) continue;
+      out.push({
+        date: baseDate,
+        playerA: idA,
+        playerB: idB,
+        cupsA: parseInt(m.cupsA) || 0,
+        cupsB: parseInt(m.cupsB) || 0,
+        winner: m.winner,
+        isTournament: true
+      });
+    }
+  }
+  return out;
+}
+
+// Berechnet ELO für alle Spieler chronologisch über alle Matches (aktuell + Archiv + Turniere)
 // Gibt Map { playerId: { elo, games, peak } } zurück
 function calcEloRatings(players, currentMatches, archive) {
   const toArr = v => Array.isArray(v) ? v : Object.values(v || {});
   const arcMatches = toArr(archive).flatMap(a => toArr(a.matches));
-  const allMatches = [...arcMatches, ...toArr(currentMatches)].filter(m => m && m.winner && (m.playerA || m.playersA && m.playersA.length)).sort((a, b) => (a.date || 0) - (b.date || 0)); // chronologisch! (inkl. Spaßspiele)
+  const tournamentMatches = extractTournamentEloMatches(players);
+  const allMatches = [...arcMatches, ...toArr(currentMatches), ...tournamentMatches].filter(m => m && m.winner && (m.playerA || m.playersA && m.playersA.length)).sort((a, b) => (a.date || 0) - (b.date || 0)); // chronologisch! (inkl. Spaßspiele + Turniere)
 
   const elo = {};
   const ensure = id => {
@@ -6808,8 +6877,13 @@ function LigaApp({
       es.addEventListener("open", () => setSyncStatus("live"));
       es.addEventListener("error", () => setSyncStatus("offline"));
     }
+
+    // Turniere für ELO-Berechnung laden + live halten
+    fetchAllTournaments().then(data => setTournamentsCache(data || {})).catch(() => {});
+    const esT = subscribeFirebase(TOURNAMENTS_FB_PATH, data => setTournamentsCache(data || {}));
     return () => {
       if (es) es.close();
+      if (esT) esT.close();
     };
   }, []);
 
@@ -6927,7 +7001,7 @@ function LigaApp({
       return;
     }
     const id = "p_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7);
-    const lg = typeof targetLeague === "number" ? targetLeague : numLeagues - 1;
+    const lg = typeof targetLeague === "number" || targetLeague === "extern" ? targetLeague : numLeagues - 1;
     update({
       players: [...players, {
         id,
@@ -7166,10 +7240,10 @@ function LigaApp({
   function setNumLeagues(n) {
     if (!isAdmin) return;
     const safe = Math.max(1, Math.min(6, n));
-    const newPlayers = players.map(p => ({
+    const newPlayers = players.map(p => typeof p.league === "number" ? {
       ...p,
       league: Math.min(p.league, safe - 1)
-    }));
+    } : p);
     update({
       numLeagues: safe,
       players: newPlayers,
@@ -7383,6 +7457,8 @@ function LigaApp({
   }
   const playerById = Object.fromEntries(players.map(p => [p.id, p]));
   function ligaName(idx) {
+    if (idx === "extern") return "Extern";
+    if (idx === "reserve") return "Reserve";
     if (idx === 0) return "1. Liga";
     if (idx === 1) return "2. Liga";
     if (idx === 2) return "3. Liga";
@@ -8923,12 +8999,19 @@ function LigaApp({
     },
     onClick: () => addPlayer(0),
     disabled: !newPlayerName.trim()
-  }, "In 1. Liga")), /*#__PURE__*/React.createElement("div", {
+  }, "In 1. Liga"), /*#__PURE__*/React.createElement("button", {
+    className: "liga-add-btn",
+    style: {
+      background: "#7986cb"
+    },
+    onClick: () => addPlayer("extern"),
+    disabled: !newPlayerName.trim()
+  }, "\u26A1 Nur ELO")), /*#__PURE__*/React.createElement("div", {
     className: "info-box",
     style: {
       marginTop: 0
     }
-  }, "Tipp: Nutze \"In 1. Liga\" wenn du erfahrene Spieler direkt oben einsteigen lassen willst. Standardm\xE4\xDFig kommen neue in die unterste Liga.")), /*#__PURE__*/React.createElement("div", {
+  }, "Tipp: ", /*#__PURE__*/React.createElement("strong", null, "\"Nur ELO\""), " f\xFCgt jemanden hinzu, der nicht in der Liga-Tabelle auftaucht, aber ein ELO-Rating bekommt und im Vergleich erscheint \u2014 perfekt f\xFCr G\xE4ste oder Leute die nur ab und zu mitspielen.")), /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       marginTop: 18
@@ -9103,6 +9186,63 @@ function LigaApp({
     }, /*#__PURE__*/React.createElement("option", {
       value: ""
     }, "\u21A9 Zur\xFCck in Liga..."), Array.from({
+      length: numLeagues
+    }).map((_, lgIdx) => /*#__PURE__*/React.createElement("option", {
+      key: lgIdx,
+      value: lgIdx
+    }, ligaName(lgIdx))))))));
+  })(), (() => {
+    const externPlayers = players.filter(p => p.league === "extern").sort((a, b) => a.name.localeCompare(b.name));
+    if (externPlayers.length === 0) return null;
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 24
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "league-name",
+      style: {
+        fontSize: 18,
+        marginBottom: 8,
+        color: "#7986cb",
+        borderColor: "rgba(121,134,203,0.3)"
+      }
+    }, "\u26A1 Externe ELO-Spieler (", externPlayers.length, ")"), /*#__PURE__*/React.createElement("div", {
+      className: "info-box",
+      style: {
+        marginBottom: 10
+      }
+    }, "Diese Spieler stehen nicht in der Liga-Tabelle, bekommen aber ein ELO-Rating und erscheinen im Vergleich. Um sie in die Liga zu holen, einfach eine Liga zuweisen."), /*#__PURE__*/React.createElement("div", {
+      className: "player-list-by-league"
+    }, externPlayers.map(p => /*#__PURE__*/React.createElement("div", {
+      className: "player-row",
+      key: p.id
+    }, /*#__PURE__*/React.createElement(Avatar, {
+      player: p,
+      size: ""
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "player-name player-link",
+      onClick: () => setViewProfileId(p.id),
+      style: p.id === currentUser?.linkedPlayerId ? {
+        color: "var(--gold)",
+        fontWeight: 700
+      } : {}
+    }, p.name, p.id === currentUser?.linkedPlayerId && /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 10,
+        marginLeft: 6,
+        color: "var(--gold)",
+        fontFamily: "'Barlow Condensed',sans-serif",
+        letterSpacing: 1
+      }
+    }, "\u2190 DU")), /*#__PURE__*/React.createElement("select", {
+      className: "player-league-select",
+      value: "",
+      onChange: e => {
+        if (e.target.value !== "") changePlayerLeague(p.id, parseInt(e.target.value));
+      }
+    }, /*#__PURE__*/React.createElement("option", {
+      value: ""
+    }, "\u21A9 In Liga holen..."), Array.from({
       length: numLeagues
     }).map((_, lgIdx) => /*#__PURE__*/React.createElement("option", {
       key: lgIdx,
@@ -10323,10 +10463,12 @@ function TournamentsHub({
     setLoading(true);
     fetchAllTournaments().then(data => {
       setTournaments(data || {});
+      setTournamentsCache(data || {});
       setLoading(false);
     }).catch(() => setLoading(false));
     const es = subscribeFirebase(TOURNAMENTS_FB_PATH, data => {
       setTournaments(data || {});
+      setTournamentsCache(data || {});
       setLoading(false);
     });
     if (es) {
@@ -10356,7 +10498,22 @@ function TournamentsHub({
     });
     setConfirmDelete(null);
   }
-  const list = Object.values(tournaments).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  function toggleArchive(t, e) {
+    if (e) e.stopPropagation();
+    const updated = {
+      ...t,
+      archived: !t.archived
+    };
+    writeTournament(updated);
+    setTournaments(prev => ({
+      ...prev,
+      [t.id]: updated
+    }));
+  }
+  const [showArchived, setShowArchived] = useState(false);
+  const allList = Object.values(tournaments).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const list = allList.filter(t => showArchived ? t.archived : !t.archived);
+  const archivedCount = allList.filter(t => t.archived).length;
   function formatLabel(format) {
     return {
       groups_ko: "Gruppe + KO",
@@ -10433,7 +10590,29 @@ function TournamentsHub({
     style: {
       marginBottom: 18
     }
-  }, "Noch keine Turniere. Erstelle dein erstes mit dem + Button!"), /*#__PURE__*/React.createElement("div", {
+  }, showArchived ? "Keine archivierten Turniere." : "Noch keine Turniere. Erstelle dein erstes mit dem + Button!"), allList.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      marginBottom: 18
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "liga-add-btn",
+    style: {
+      background: !showArchived ? "var(--gold)" : "transparent",
+      color: !showArchived ? "#0e1a0e" : "var(--dim)",
+      border: !showArchived ? "none" : "1px solid var(--border)"
+    },
+    onClick: () => setShowArchived(false)
+  }, "\uD83D\uDFE2 Aktiv (", allList.length - archivedCount, ")"), /*#__PURE__*/React.createElement("button", {
+    className: "liga-add-btn",
+    style: {
+      background: showArchived ? "var(--gold)" : "transparent",
+      color: showArchived ? "#0e1a0e" : "var(--dim)",
+      border: showArchived ? "none" : "1px solid var(--border)"
+    },
+    onClick: () => setShowArchived(true)
+  }, "\uD83D\uDCE6 Archiv (", archivedCount, ")")), /*#__PURE__*/React.createElement("div", {
     className: "tournaments-grid"
   }, list.map(t => /*#__PURE__*/React.createElement("div", {
     className: "tournament-card",
@@ -10470,13 +10649,25 @@ function TournamentsHub({
     className: "tournament-card-footer"
   }, /*#__PURE__*/React.createElement("div", {
     className: "tournament-card-date"
-  }, t.createdAt ? new Date(t.createdAt).toLocaleDateString("de-DE") : ""), isAdmin && /*#__PURE__*/React.createElement("button", {
+  }, t.createdAt ? new Date(t.createdAt).toLocaleDateString("de-DE") : ""), isAdmin && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "match-hist-del",
+    style: {
+      fontSize: 15
+    },
+    title: t.archived ? "Aus Archiv holen" : "Archivieren",
+    onClick: e => toggleArchive(t, e)
+  }, t.archived ? "📤" : "📦"), /*#__PURE__*/React.createElement("button", {
     className: "match-hist-del",
     onClick: e => {
       e.stopPropagation();
       setConfirmDelete(t);
     }
-  }, "\uD83D\uDDD1")))), isAdmin && /*#__PURE__*/React.createElement("div", {
+  }, "\uD83D\uDDD1"))))), isAdmin && /*#__PURE__*/React.createElement("div", {
     className: "tournament-new-card",
     onClick: () => setShowWizard(true)
   }, /*#__PURE__*/React.createElement("div", {
