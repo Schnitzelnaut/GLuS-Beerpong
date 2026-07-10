@@ -18,7 +18,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v119";
+const APP_VERSION = "glus-v122";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -1751,10 +1751,17 @@ function calcEloRatings(players, currentMatches, archive) {
 
 // Setzlisten-Score: basiert auf ELO-Rating
 // Gibt normalisierten Score zurück (ELO/1000 → ~0.8-1.4) oder null wenn keine Spiele
+// Setzlisten-Score: ELO gewichtet mit Erfahrungs-Faktor.
+// Wer wenige Spiele hat, wird Richtung eines Basiswerts gezogen (weniger vertrauenswürdig),
+// damit erfahrene Spieler in der Setzliste belohnt werden. Betrifft NUR die Setzliste.
+const SEED_FULL_GAMES = 10; // ab so vielen Spielen zählt die volle ELO
+const SEED_FLOOR = 700; // Basiswert zu dem Neulinge gezogen werden
 function calcSeedScore(playerId, eloMap) {
   const e = eloMap[playerId];
   if (!e || e.games === 0) return null;
-  return e.elo;
+  const confidence = Math.min(1, e.games / SEED_FULL_GAMES); // 0..1
+  // Gewichteter Wert: viel Erfahrung → volle ELO, wenig → Richtung SEED_FLOOR
+  return Math.round(e.elo * confidence + SEED_FLOOR * (1 - confidence));
 }
 function loadSeedStats() {
   const d = loadLiga() || {};
@@ -3319,10 +3326,14 @@ function VersionCard() {
       color: "#8bc34a"
     }
   }, "✓ Aktuell"), /*#__PURE__*/React.createElement("button", {
-    className: "demo-btn",
+    className: "big-btn",
     style: {
       marginTop: 8,
-      width: "100%"
+      width: "100%",
+      fontSize: 17,
+      padding: "16px",
+      background: upToDate ? undefined : "#f0c040",
+      color: upToDate ? undefined : "#0e1a0e"
     },
     onClick: async () => {
       // SW-Cache umgehen: neuen SW aktivieren dann hard reload
@@ -11360,19 +11371,22 @@ function UpdateBanner() {
       top: 0,
       left: 0,
       right: 0,
-      zIndex: 9999,
+      zIndex: 99999,
       background: "linear-gradient(90deg,#2e7d32,#388e3c)",
       color: "#fff",
       textAlign: "center",
-      padding: "12px 16px",
+      paddingTop: "calc(env(safe-area-inset-top) + 14px)",
+      paddingBottom: "14px",
+      paddingLeft: "16px",
+      paddingRight: "16px",
       fontFamily: "'Barlow Condensed',sans-serif",
-      fontSize: 16,
+      fontSize: 17,
       fontWeight: 700,
       letterSpacing: 1,
       cursor: "pointer",
       boxShadow: "0 2px 12px rgba(0,0,0,0.4)"
     }
-  }, "🔄 Update verfügbar — tippe zum Aktualisieren");
+  }, "🔄 Update verfügbar — hier tippen zum Aktualisieren");
 }
 function RootApp() {
   const [mode, setMode] = useState(() => {
@@ -11657,6 +11671,8 @@ function AdminApp({
 
   // Only fetch from Firebase if we have a tournamentId AND no initialTournament data
   const [syncedFromFB, setSyncedFromFB] = useState(!!initialTournament || !tournamentId);
+  // Zeitstempel der letzten lokalen Texteingabe — verhindert dass Firebase-Echos die Eingabe überschreiben
+  const lastLocalEditRef = useRef(0);
 
   // Role check — same as Liga (read from localStorage)
   const [tournierRole] = useState(() => {
@@ -11705,8 +11721,12 @@ function AdminApp({
     if (data.withRematch !== undefined) setWithRematch(data.withRematch);
     if (data.withSeeding !== undefined) setWithSeeding(data.withSeeding);
     if (data.advPerGroup !== undefined) setAdvPerGroup(data.advPerGroup);
-    if (data.names !== undefined) setNames(Array.isArray(data.names) ? data.names : Object.values(data.names || {}));
-    if (data.teamPlayers !== undefined) setTeamPlayers(Array.isArray(data.teamPlayers) ? data.teamPlayers : Object.values(data.teamPlayers || {}));
+    // Namen/Teams NICHT überschreiben wenn gerade lokal getippt wird (verhindert verschluckte Buchstaben)
+    const editingNow = Date.now() - lastLocalEditRef.current < 2500;
+    if (!editingNow) {
+      if (data.names !== undefined) setNames(Array.isArray(data.names) ? data.names : Object.values(data.names || {}));
+      if (data.teamPlayers !== undefined) setTeamPlayers(Array.isArray(data.teamPlayers) ? data.teamPlayers : Object.values(data.teamPlayers || {}));
+    }
     if (data.groups !== undefined) setGroups(normGroups(data.groups));
     if (data.koMatches !== undefined) setKoMatches(data.koMatches ? Array.isArray(data.koMatches) ? data.koMatches : Object.values(data.koMatches) : null);
   }
@@ -12285,14 +12305,21 @@ function AdminApp({
     tournamentMode: tournamentMode,
     name: names[i] || "",
     onNameChange: val => {
+      lastLocalEditRef.current = Date.now();
       const n = [...names];
       n[i] = val;
       setNames(n);
     },
     teamPlayers: teamPlayers,
-    onTeamPlayersChange: setTeamPlayers,
+    onTeamPlayersChange: tp => {
+      lastLocalEditRef.current = Date.now();
+      setTeamPlayers(tp);
+    },
     names: names,
-    onNamesChange: setNames,
+    onNamesChange: n => {
+      lastLocalEditRef.current = Date.now();
+      setNames(n);
+    },
     players: players || []
   }))), tournamentMode === "2v2" && /*#__PURE__*/React.createElement("button", {
     className: "demo-btn",
