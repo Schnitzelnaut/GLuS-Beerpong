@@ -18,7 +18,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v118";
+const APP_VERSION = "glus-v119";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -2808,6 +2808,48 @@ const css = `
   flex-direction: column;
   overflow: hidden;
 }
+
+/* ☀️ SONNEN-MODUS — heller Hintergrund, dunkle fette Schrift für Draußen */
+.display-app.bright {
+  background: #f5f5f0;
+  background-image: none;
+  color: #111;
+}
+.display-app.bright .display-tagline { color: #1a5a1a; }
+.display-app.bright .display-tab {
+  background: #e0e0d8; color: #333; border-color: #bbb; font-weight: 700;
+}
+.display-app.bright .display-tab.active { background: #1a7a1a; color: #fff; }
+.display-app.bright .tv-group-card,
+.display-app.bright .tv-ko-match,
+.display-app.bright .tv-rule-card {
+  background: #fff !important; border: 2px solid #333 !important; color: #111 !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
+}
+.display-app.bright .tv-group-name,
+.display-app.bright .tv-round-title,
+.display-app.bright .tv-rule-title { color: #1a5a1a !important; }
+.display-app.bright .tv-ko-name,
+.display-app.bright .tv-rule-text,
+.display-app.bright .tv-rule-num { color: #111 !important; }
+.display-app.bright .tv-ko-name.w,
+.display-app.bright .tv-winner .tv-ko-name { color: #0a5a0a !important; font-weight: 800; }
+.display-app.bright .tv-ko-team.tv-winner { background: rgba(26,122,26,0.12) !important; }
+.display-app.bright .tv-pts,
+.display-app.bright .tv-ko-score,
+.display-app.bright .tv-rank { color: #000 !important; font-weight: 800; }
+.display-app.bright .tv-q { color: #0a6a0a !important; font-weight: 800; }
+.display-app.bright .no-data { color: #444 !important; }
+.display-app.bright .tv-round-title { border-color: #999 !important; }
+.display-app.bright .tv-prize-amount,
+.display-app.bright .tv-prize-pot-value { color: #0a6a0a !important; }
+.display-app.bright .tv-prize-place,
+.display-app.bright .tv-prize-pot-label,
+.display-app.bright .tv-prize-pot-breakdown { color: #111 !important; }
+.display-app.bright .tv-group-header,
+.display-app.bright .tv-group-progress { color: #333 !important; }
+.display-app.bright .tv-standings { color: #111 !important; }
+.display-app.bright .tv-ko-team.tv-tbd { color: #888 !important; }
 
 .display-header {
   display: flex;
@@ -10876,6 +10918,7 @@ function TVDisplay({
   const [champDismissed, setChampDismissed] = useState(false);
   const [lastChampName, setLastChampName] = useState(null);
   const [lastSyncedTab, setLastSyncedTab] = useState(null);
+  const [brightMode, setBrightMode] = useState(false);
 
   // Tab folgt dem Admin-Bildschirm (wenn dort gewechselt wird)
   useEffect(() => {
@@ -10959,7 +11002,7 @@ function TVDisplay({
   const p3MatchTV = resolved.find(m => m.id === "p3");
   const tvThird = p3MatchTV ? getKoWinner(p3MatchTV) : null;
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("style", null, FONTS + css), /*#__PURE__*/React.createElement("div", {
-    className: "display-app"
+    className: `display-app${brightMode ? " bright" : ""}`
   }, champion && !champDismissed && /*#__PURE__*/React.createElement(ChampionPodium, {
     first: champion,
     second: tvSecond,
@@ -10980,6 +11023,14 @@ function TVDisplay({
   }, "BeerPong", /*#__PURE__*/React.createElement("br", null), "Turnier"))), /*#__PURE__*/React.createElement("div", {
     className: "display-switch"
   }, /*#__PURE__*/React.createElement("button", {
+    className: "display-tab",
+    onClick: () => setBrightMode(b => !b),
+    title: "Bei Sonne besser lesbar",
+    style: {
+      background: brightMode ? "#f0c040" : undefined,
+      color: brightMode ? "#000" : undefined
+    }
+  }, brightMode ? "🌙 Dunkel" : "☀️ Hell"), /*#__PURE__*/React.createElement("button", {
     className: `display-tab${displayTab === "groups" ? " active" : ""}`,
     onClick: () => setDisplayTab("groups")
   }, "🏆 Gruppen"), /*#__PURE__*/React.createElement("button", {
