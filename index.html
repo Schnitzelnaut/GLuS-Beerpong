@@ -18,7 +18,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v117";
+const APP_VERSION = "glus-v118";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -10875,11 +10875,20 @@ function TVDisplay({
   const [displayTab, setDisplayTab] = useState("groups");
   const [champDismissed, setChampDismissed] = useState(false);
   const [lastChampName, setLastChampName] = useState(null);
+  const [lastSyncedTab, setLastSyncedTab] = useState(null);
+
+  // Tab folgt dem Admin-Bildschirm (wenn dort gewechselt wird)
+  useEffect(() => {
+    const extTab = state?.displayTab;
+    if (extTab && extTab !== lastSyncedTab) {
+      setDisplayTab(extTab);
+      setLastSyncedTab(extTab);
+    }
+  }, [state?.displayTab, lastSyncedTab]);
   const {
     groups,
     advPerGroup,
     koMatches,
-    koRounds,
     entryFee,
     beerCases,
     pricePerCase,
@@ -10888,7 +10897,14 @@ function TVDisplay({
     share3,
     numPlayers
   } = state ?? {};
-  const resolved = useMemo(() => resolveKO(koMatches, koRounds ?? 1), [koMatches, koRounds]);
+  // koRounds robust ableiten: aus State, sonst aus koMatches berechnen
+  const koRounds = useMemo(() => {
+    if (state?.koRounds) return state.koRounds;
+    if (!koMatches) return 1;
+    const firstRoundMatches = koMatches.filter(m => m.id !== "p3" && m.round === 0).length;
+    return firstRoundMatches > 0 ? Math.round(Math.log2(firstRoundMatches * 2)) : 1;
+  }, [state, koMatches]);
+  const resolved = useMemo(() => resolveKO(koMatches, koRounds), [koMatches, koRounds]);
   function getKoWinner(m) {
     if (!m.winner) return null;
     return m.winner === "A" ? m.teamA : m.teamB;
@@ -11383,7 +11399,8 @@ function DisplayApp() {
         share1: data.share1,
         share2: data.share2,
         share3: data.share3,
-        numPlayers: data.numPlayers
+        numPlayers: data.numPlayers,
+        displayTab: data.displayTab
       });
     }).catch(() => {});
     const es = subscribeFirebase(`${TOURNAMENTS_FB_PATH}/${tournamentId}`, data => {
@@ -11398,7 +11415,8 @@ function DisplayApp() {
         share1: data.share1,
         share2: data.share2,
         share3: data.share3,
-        numPlayers: data.numPlayers
+        numPlayers: data.numPlayers,
+        displayTab: data.displayTab
       });
     });
     return () => {
@@ -11666,7 +11684,9 @@ function AdminApp({
       names,
       teamPlayers,
       groups,
-      koMatches
+      koMatches,
+      koRounds,
+      koSize
     };
   }
 
@@ -11736,6 +11756,21 @@ function AdminApp({
       key: STORAGE_KEY
     }));
   }, [stateForDisplay]);
+
+  // ── Tab-Sync zum Display-Bildschirm ──
+  // Admin-Tabs auf Display-Tabs mappen und live nach Firebase schreiben
+  useEffect(() => {
+    const map = {
+      groups: "groups",
+      ko: "ko",
+      prize: "prize",
+      rules: "rules"
+    };
+    const dispTab = map[tab];
+    if (dispTab && tournamentId) {
+      writeFirebase(`${TOURNAMENTS_FB_PATH}/${tournamentId}/displayTab`, dispTab);
+    }
+  }, [tab, tournamentId]);
 
   // ── Display window ──
   function openDisplay() {
