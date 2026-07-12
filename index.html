@@ -18,7 +18,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v122";
+const APP_VERSION = "glus-v123";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -124,6 +124,8 @@ function makeDefaultTournament(overrides = {}) {
     status: "setup",
     // "setup" | "active" | "finished"
     // Turnier config
+    hasPrizeMoney: overrides.hasPrizeMoney !== undefined ? overrides.hasPrizeMoney : true,
+    // geht es um Geld?
     entryFee: 20,
     beerCases: 8,
     pricePerCase: 10,
@@ -11634,6 +11636,7 @@ function AdminApp({
   const [tournamentType, setTournamentType] = useState(init.tournamentType || "spass");
   const [participantSource, setParticipantSource] = useState(init.participantSource || "custom");
   const [entryFee, setEntryFee] = useState(init.entryFee ?? 20);
+  const [hasPrizeMoney, setHasPrizeMoney] = useState(init.hasPrizeMoney !== undefined ? init.hasPrizeMoney : true);
   const [beerCases, setBeerCases] = useState(init.beerCases ?? 8);
   const [pricePerCase, setPricePerCase] = useState(init.pricePerCase ?? 10);
   const [share1, setShare1] = useState(init.share1 ?? 50);
@@ -11711,6 +11714,7 @@ function AdminApp({
     if (data.participantSource !== undefined) setParticipantSource(data.participantSource);
     if (data.tournamentType !== undefined) setTournamentType(data.tournamentType);
     if (data.entryFee !== undefined) setEntryFee(data.entryFee);
+    if (data.hasPrizeMoney !== undefined) setHasPrizeMoney(data.hasPrizeMoney);
     if (data.beerCases !== undefined) setBeerCases(data.beerCases);
     if (data.pricePerCase !== undefined) setPricePerCase(data.pricePerCase);
     if (data.share1 !== undefined) setShare1(data.share1);
@@ -11744,6 +11748,7 @@ function AdminApp({
       entryFee,
       beerCases,
       pricePerCase,
+      hasPrizeMoney,
       share1,
       share2,
       share3,
@@ -12935,6 +12940,28 @@ function AdminApp({
     }, /*#__PURE__*/React.createElement("div", {
       className: "card-title"
     }, "💰 Eingabe"), /*#__PURE__*/React.createElement("div", {
+      className: "prize-input-row",
+      style: {
+        borderBottom: "1px solid var(--border)",
+        paddingBottom: 12,
+        marginBottom: 12
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "param-label"
+    }, "Geht es um Geld?"), /*#__PURE__*/React.createElement("button", {
+      className: "demo-btn",
+      style: {
+        background: hasPrizeMoney ? "#8bc34a" : "#555",
+        color: hasPrizeMoney ? "#0e1a0e" : "#ccc",
+        minWidth: 70
+      },
+      onClick: () => setHasPrizeMoney(v => !v)
+    }, hasPrizeMoney ? "✓ Ja" : "✗ Nein")), !hasPrizeMoney && /*#__PURE__*/React.createElement("div", {
+      className: "info-box",
+      style: {
+        marginTop: 0
+      }
+    }, "🏆 Dieses Turnier geht nicht um Geld (z.B. Champions League). Es wird kein Preisgeld angezeigt — nur Ruhm und Ehre!"), hasPrizeMoney && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       className: "prize-input-row"
     }, /*#__PURE__*/React.createElement("span", {
       className: "param-label"
@@ -13067,7 +13094,7 @@ function AdminApp({
       className: "share-warn"
     }, "⚠ Summe ist ", totalShare, "% (sollte 100% sein)") : /*#__PURE__*/React.createElement("div", {
       className: "share-ok"
-    }, "✓ Aufteilung passt (100%)")), /*#__PURE__*/React.createElement("div", {
+    }, "✓ Aufteilung passt (100%)"))), hasPrizeMoney && /*#__PURE__*/React.createElement("div", {
       className: "card"
     }, /*#__PURE__*/React.createElement("div", {
       className: "card-title"
@@ -13148,6 +13175,45 @@ function AdminApp({
       className: "prize-podium-pct"
     }, share3, "%"), /*#__PURE__*/React.createElement("div", {
       className: `prize-podium-team${winner3 ? "" : " tbd"}`
+    }, winner3 ? winner3.name : "TBD")))), !hasPrizeMoney && /*#__PURE__*/React.createElement("div", {
+      className: "card"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "card-title"
+    }, "🏆 Sieger"), /*#__PURE__*/React.createElement("div", {
+      className: "prize-podium-grid"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "prize-podium-card gold"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "prize-podium-medal"
+    }, "🥇"), /*#__PURE__*/React.createElement("div", {
+      className: "prize-podium-place"
+    }, "Platz 1"), /*#__PURE__*/React.createElement("div", {
+      className: `prize-podium-team${winner1 ? "" : " tbd"}`,
+      style: {
+        marginTop: 8
+      }
+    }, winner1 ? winner1.name : "TBD")), /*#__PURE__*/React.createElement("div", {
+      className: "prize-podium-card silver"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "prize-podium-medal"
+    }, "🥈"), /*#__PURE__*/React.createElement("div", {
+      className: "prize-podium-place"
+    }, "Platz 2"), /*#__PURE__*/React.createElement("div", {
+      className: `prize-podium-team${winner2 ? "" : " tbd"}`,
+      style: {
+        marginTop: 8
+      }
+    }, winner2 ? winner2.name : "TBD")), /*#__PURE__*/React.createElement("div", {
+      className: "prize-podium-card bronze"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "prize-podium-medal"
+    }, "🥉"), /*#__PURE__*/React.createElement("div", {
+      className: "prize-podium-place"
+    }, "Platz 3"), /*#__PURE__*/React.createElement("div", {
+      className: `prize-podium-team${winner3 ? "" : " tbd"}`,
+      style: {
+        marginTop: 8
+      }
     }, winner3 ? winner3.name : "TBD")))));
   })(), tab === "rules" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "rules-intro"
