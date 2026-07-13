@@ -18,7 +18,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v125";
+const APP_VERSION = "glus-v126";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -1789,6 +1789,63 @@ function calcEloHistory(playerId, players, currentMatches, archive) {
     }
   }
   return history;
+}
+
+// Paralleler ELO-Verlauf ZWEIER Spieler über die globale Spielreihenfolge.
+// Jeder Datenpunkt entsteht wenn EINER der beiden ein 1v1 spielt; die Linie des
+// anderen läuft flach weiter (sein Rating ändert sich ja nicht).
+// Gibt { steps: [{step, eloA, eloB}], countA, countB } zurück.
+function calcDualEloHistory(idA, idB, players, currentMatches, archive) {
+  const toArr = v => Array.isArray(v) ? v : Object.values(v || {});
+  const arcMatches = toArr(archive).flatMap(a => toArr(a.matches));
+  const allMatches = [...arcMatches, ...toArr(currentMatches)].filter(m => m && m.winner && (m.playerA || m.playersA && m.playersA.length)).sort((a, b) => (a.date || 0) - (b.date || 0));
+  const elo = {};
+  const ensure = id => {
+    if (elo[id] === undefined) elo[id] = ELO_START;
+    return elo[id];
+  };
+  const steps = [{
+    step: 0,
+    eloA: ELO_START,
+    eloB: ELO_START
+  }];
+  let step = 0,
+    countA = 0,
+    countB = 0;
+  for (const m of allMatches) {
+    const teamA = (m.playersA && m.playersA.length ? m.playersA : [m.playerA]).filter(Boolean);
+    const teamB = (m.playersB && m.playersB.length ? m.playersB : [m.playerB]).filter(Boolean);
+    if (teamA.length !== 1 || teamB.length !== 1) continue;
+    const p1 = teamA[0],
+      p2 = teamB[0];
+    const e1 = ensure(p1),
+      e2 = ensure(p2);
+    const We = 1 / (Math.pow(10, -(e1 - e2) / 400) + 1);
+    const W = m.winner === "A" ? 1 : 0;
+    const G = eloGFactor((m.cupsA || 0) - (m.cupsB || 0));
+    const delta = Math.round(ELO_K * G * (W - We));
+    elo[p1] = e1 + delta;
+    elo[p2] = e2 - delta;
+
+    // Nur wenn einer unserer beiden Spieler beteiligt ist → neuer Datenpunkt
+    const involvesA = p1 === idA || p2 === idA;
+    const involvesB = p1 === idB || p2 === idB;
+    if (involvesA || involvesB) {
+      step++;
+      if (involvesA) countA++;
+      if (involvesB) countB++;
+      steps.push({
+        step,
+        eloA: ensure(idA),
+        eloB: ensure(idB)
+      });
+    }
+  }
+  return {
+    steps,
+    countA,
+    countB
+  };
 }
 // ============ END ELO ============
 
@@ -9987,6 +10044,140 @@ function LigaApp({
           letterSpacing: 1
         }
       }, /*#__PURE__*/React.createElement("span", null, Math.round(generalWeight * 100), "% allg. · 15% Liga · ", Math.round(h2hWeight * 100), "% H2H"), /*#__PURE__*/React.createElement("span", null, "🍺 10% Garten-Marge")));
+    })(), (() => {
+      const {
+        steps
+      } = calcDualEloHistory(pa.id, pb.id, players, matches, archive);
+      if (steps.length < 4) return null;
+      const W = 320,
+        H = 150,
+        padL = 36,
+        padR = 10,
+        padT = 14,
+        padB = 22;
+      const allE = steps.flatMap(s => [s.eloA, s.eloB]);
+      const minE = Math.min(...allE),
+        maxE = Math.max(...allE);
+      const range = Math.max(50, maxE - minE);
+      const yMin = minE - range * 0.12,
+        yMax = maxE + range * 0.12;
+      const maxS = steps[steps.length - 1].step;
+      const px = s => padL + s / maxS * (W - padL - padR);
+      const py = e => padT + (1 - (e - yMin) / (yMax - yMin)) * (H - padT - padB);
+      const lineA = steps.map(s => `${px(s.step).toFixed(1)},${py(s.eloA).toFixed(1)}`).join(" ");
+      const lineB = steps.map(s => `${px(s.step).toFixed(1)},${py(s.eloB).toFixed(1)}`).join(" ");
+      const step = range > 300 ? 100 : range > 150 ? 50 : 25;
+      const gridVals = [];
+      for (let v = Math.ceil(yMin / step) * step; v <= yMax; v += step) gridVals.push(v);
+      const showBase = yMin <= ELO_START && yMax >= ELO_START;
+      const colorA = "#8bc34a",
+        colorB = "#f0c040";
+      return /*#__PURE__*/React.createElement("div", {
+        style: {
+          marginBottom: 14,
+          padding: "12px 14px",
+          background: "rgba(10,28,10,0.4)",
+          border: "1px solid var(--border)",
+          borderRadius: 6
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 8
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "'Barlow Condensed',sans-serif",
+          fontSize: 11,
+          letterSpacing: 1.5,
+          textTransform: "uppercase",
+          color: "var(--dim)"
+        }
+      }, "📈 ELO-Verlauf im Vergleich"), /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 12,
+          fontSize: 11,
+          fontFamily: "'Barlow Condensed',sans-serif",
+          fontWeight: 700
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: colorA
+        }
+      }, "● ", pa.name), /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: colorB
+        }
+      }, "● ", pb.name))), /*#__PURE__*/React.createElement("svg", {
+        viewBox: `0 0 ${W} ${H}`,
+        style: {
+          width: "100%",
+          height: "auto",
+          display: "block"
+        }
+      }, gridVals.map((v, i) => /*#__PURE__*/React.createElement("g", {
+        key: i
+      }, /*#__PURE__*/React.createElement("line", {
+        x1: padL,
+        y1: py(v),
+        x2: W - padR,
+        y2: py(v),
+        stroke: "rgba(255,255,255,0.06)",
+        strokeWidth: "1"
+      }), /*#__PURE__*/React.createElement("text", {
+        x: padL - 4,
+        y: py(v) + 3,
+        textAnchor: "end",
+        fontSize: "9",
+        fill: "rgba(255,255,255,0.35)",
+        fontFamily: "'Barlow Condensed',sans-serif"
+      }, v))), showBase && /*#__PURE__*/React.createElement("line", {
+        x1: padL,
+        y1: py(ELO_START),
+        x2: W - padR,
+        y2: py(ELO_START),
+        stroke: "rgba(255,255,255,0.15)",
+        strokeWidth: "1",
+        strokeDasharray: "3,3"
+      }), /*#__PURE__*/React.createElement("polyline", {
+        points: lineA,
+        fill: "none",
+        stroke: colorA,
+        strokeWidth: "2",
+        strokeLinejoin: "round",
+        strokeLinecap: "round"
+      }), /*#__PURE__*/React.createElement("polyline", {
+        points: lineB,
+        fill: "none",
+        stroke: colorB,
+        strokeWidth: "2",
+        strokeLinejoin: "round",
+        strokeLinecap: "round"
+      }), /*#__PURE__*/React.createElement("circle", {
+        cx: px(maxS),
+        cy: py(steps[steps.length - 1].eloA),
+        r: "3.5",
+        fill: colorA,
+        stroke: "#0e1a0e",
+        strokeWidth: "1.5"
+      }), /*#__PURE__*/React.createElement("circle", {
+        cx: px(maxS),
+        cy: py(steps[steps.length - 1].eloB),
+        r: "3.5",
+        fill: colorB,
+        stroke: "#0e1a0e",
+        strokeWidth: "1.5"
+      })), /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 10,
+          color: "var(--dim)",
+          marginTop: 6,
+          textAlign: "center"
+        }
+      }, "Gemeinsame Zeitachse — jeder Schritt ist ein Spiel von einem der beiden"));
     })(), h2h.matches.length === 0 ? /*#__PURE__*/React.createElement("div", {
       className: "h2h-empty"
     }, "⚔️ ", pa.name, " und ", pb.name, " haben noch nicht gegeneinander gespielt.") : /*#__PURE__*/React.createElement("div", {
