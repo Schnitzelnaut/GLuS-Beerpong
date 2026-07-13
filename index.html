@@ -18,7 +18,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v123";
+const APP_VERSION = "glus-v124";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -5824,6 +5824,7 @@ function EditMatchModal({
   const [cupsA, setCupsA] = useState(String(match.cupsA ?? 0));
   const [cupsB, setCupsB] = useState(String(match.cupsB ?? 0));
   const [winner, setWinner] = useState(match.winner);
+  const [isFun, setIsFun] = useState(!!match.isFunGame);
   return /*#__PURE__*/React.createElement("div", {
     className: "confirm-modal",
     onClick: e => e.target === e.currentTarget && onCancel()
@@ -5880,7 +5881,47 @@ function EditMatchModal({
   }, winner === "A" ? "✓ " : "", "Sieger: ", playerA.name), /*#__PURE__*/React.createElement("button", {
     className: `match-entry-winner-btn${winner === "B" ? " active" : ""}`,
     onClick: () => setWinner("B")
-  }, winner === "B" ? "✓ " : "", "Sieger: ", playerB.name))), /*#__PURE__*/React.createElement("div", {
+  }, winner === "B" ? "✓ " : "", "Sieger: ", playerB.name)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 14,
+      padding: "10px 12px",
+      background: "rgba(10,28,10,0.4)",
+      borderRadius: 6,
+      border: "1px solid var(--border)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--dim)",
+      marginBottom: 8,
+      textTransform: "uppercase",
+      letterSpacing: 1.5,
+      fontFamily: "'Barlow Condensed',sans-serif"
+    }
+  }, "Spiel-Typ"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: `match-entry-winner-btn${!isFun ? " active" : ""}`,
+    style: {
+      flex: 1
+    },
+    onClick: () => setIsFun(false)
+  }, !isFun ? "✓ " : "", "🏆 Liga-Spiel"), /*#__PURE__*/React.createElement("button", {
+    className: `match-entry-winner-btn${isFun ? " active" : ""}`,
+    style: {
+      flex: 1
+    },
+    onClick: () => setIsFun(true)
+  }, isFun ? "✓ " : "", "🎮 Spaß-Spiel")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--dim)",
+      marginTop: 8
+    }
+  }, isFun ? "Zählt nicht für die Liga-Tabelle." : "Zählt für die Liga-Tabelle und Wertung."))), /*#__PURE__*/React.createElement("div", {
     className: "confirm-actions",
     style: {
       marginTop: 16
@@ -5897,7 +5938,8 @@ function EditMatchModal({
     onClick: () => onSave({
       cupsA: parseInt(cupsA) || 0,
       cupsB: parseInt(cupsB) || 0,
-      winner
+      winner,
+      isFunGame: isFun
     })
   }, "Speichern"))));
 }
@@ -6710,6 +6752,9 @@ function LigaApp({
   const [matchPlayersA, setMatchPlayersA] = useState(["", "", "", "", ""]);
   const [matchPlayersB, setMatchPlayersB] = useState(["", "", "", "", ""]);
   const [openPairsSearch, setOpenPairsSearch] = useState("");
+  const [expandedOpenLeagues, setExpandedOpenLeagues] = useState({});
+  const [searchA, setSearchA] = useState("");
+  const [searchB, setSearchB] = useState("");
   const [matchPlayerB, setMatchPlayerB] = useState("");
   const [matchCupsA, setMatchCupsA] = useState("");
   const [matchCupsB, setMatchCupsB] = useState("");
@@ -7733,8 +7778,11 @@ function LigaApp({
   }, "Anmelden")))), editMatchId && (() => {
     const m = matches.find(x => x.id === editMatchId);
     if (!m) return null;
-    const pa = playerById[m.playerA],
-      pb = playerById[m.playerB];
+    // Spieler auflösen — auch für 1v1-Spaßspiele (playersA/playersB)
+    const aId = m.playerA || m.playersA && m.playersA[0];
+    const bId = m.playerB || m.playersB && m.playersB[0];
+    const pa = playerById[aId],
+      pb = playerById[bId];
     if (!pa || !pb) return null;
     return /*#__PURE__*/React.createElement(EditMatchModal, {
       match: m,
@@ -8476,13 +8524,22 @@ function LigaApp({
       className: "match-entry-row"
     }, /*#__PURE__*/React.createElement("div", {
       className: "match-entry-side"
-    }, /*#__PURE__*/React.createElement("select", {
+    }, players.length > 12 && /*#__PURE__*/React.createElement("input", {
+      className: "liga-add-input",
+      style: {
+        marginBottom: 6,
+        fontSize: 13
+      },
+      placeholder: "🔍 Spieler A suchen...",
+      value: searchA,
+      onChange: e => setSearchA(e.target.value)
+    }), /*#__PURE__*/React.createElement("select", {
       className: "match-entry-select",
       value: matchPlayerA,
       onChange: e => setMatchPlayerA(e.target.value)
     }, /*#__PURE__*/React.createElement("option", {
       value: ""
-    }, "— Spieler A wählen —"), players.map(p => {
+    }, "— Spieler A wählen —"), players.filter(p => !searchA.trim() || p.name.toLowerCase().includes(searchA.trim().toLowerCase())).map(p => {
       const isMaxed = matchPlayerB && playedFull(p.id, matchPlayerB);
       return /*#__PURE__*/React.createElement("option", {
         key: p.id,
@@ -8507,13 +8564,22 @@ function LigaApp({
       className: "match-entry-vs"
     }, "VS"), /*#__PURE__*/React.createElement("div", {
       className: "match-entry-side"
-    }, /*#__PURE__*/React.createElement("select", {
+    }, players.length > 12 && /*#__PURE__*/React.createElement("input", {
+      className: "liga-add-input",
+      style: {
+        marginBottom: 6,
+        fontSize: 13
+      },
+      placeholder: "🔍 Spieler B suchen...",
+      value: searchB,
+      onChange: e => setSearchB(e.target.value)
+    }), /*#__PURE__*/React.createElement("select", {
       className: "match-entry-select",
       value: matchPlayerB,
       onChange: e => setMatchPlayerB(e.target.value)
     }, /*#__PURE__*/React.createElement("option", {
       value: ""
-    }, "— Spieler B wählen —"), players.map(p => {
+    }, "— Spieler B wählen —"), players.filter(p => !searchB.trim() || p.name.toLowerCase().includes(searchB.trim().toLowerCase())).map(p => {
       const isMaxed = matchPlayerA && playedFull(p.id, matchPlayerA);
       return /*#__PURE__*/React.createElement("option", {
         key: p.id,
@@ -8848,41 +8914,66 @@ function LigaApp({
       onChange: e => setOpenPairsSearch(e.target.value)
     })), filteredOpen.length === 0 && search && /*#__PURE__*/React.createElement("div", {
       className: "open-pair-empty"
-    }, "Keine offenen Paarungen für „", openPairsSearch, "\""), filteredOpen.map(({
+    }, "Keine offenen Paarungen für „", openPairsSearch, "\""), !search && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "var(--dim)",
+        marginBottom: 10,
+        textAlign: "center"
+      }
+    }, "Tippe oben einen Namen ein, um Spiele eines Spielers zu finden — oder klappe eine Liga auf."), filteredOpen.map(({
       league,
       openPairs
-    }) => /*#__PURE__*/React.createElement("div", {
-      key: league
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "open-pair-league-title"
-    }, ligaName(league), " — ", openPairs.length, " offene Paarungen"), /*#__PURE__*/React.createElement("div", {
-      className: "open-pair-list"
-    }, openPairs.map((pair, i) => {
-      const cls = pair.played === 0 ? "empty" : pair.played < pair.total ? "partial" : "full";
+    }) => {
+      const isExpanded = !!search || expandedOpenLeagues[league];
       return /*#__PURE__*/React.createElement("div", {
-        key: i,
-        className: "open-pair-row",
-        onClick: () => {
-          setMatchPlayerA(pair.playerA.id);
-          setMatchPlayerB(pair.playerB.id);
-          setMatchCupsA("");
-          setMatchCupsB("");
-          setMatchWinner(null);
-          window.scrollTo({
-            top: 0,
-            behavior: 'smooth'
-          });
-        }
+        key: league
       }, /*#__PURE__*/React.createElement("div", {
-        className: "open-pair-name"
-      }, pair.playerA.name), /*#__PURE__*/React.createElement("div", {
-        className: "open-pair-vs"
-      }, "VS"), /*#__PURE__*/React.createElement("div", {
-        className: "open-pair-name right"
-      }, pair.playerB.name), /*#__PURE__*/React.createElement("span", {
-        className: `open-pair-count ${cls}`
-      }, pair.played, "/", pair.total));
-    })))));
+        className: "open-pair-league-title",
+        style: {
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          userSelect: "none"
+        },
+        onClick: () => !search && setExpandedOpenLeagues(prev => ({
+          ...prev,
+          [league]: !prev[league]
+        }))
+      }, /*#__PURE__*/React.createElement("span", null, ligaName(league), " — ", openPairs.length, " offene Paarungen"), !search && /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 14
+        }
+      }, isExpanded ? "▲" : "▼")), isExpanded && /*#__PURE__*/React.createElement("div", {
+        className: "open-pair-list"
+      }, openPairs.map((pair, i) => {
+        const cls = pair.played === 0 ? "empty" : pair.played < pair.total ? "partial" : "full";
+        return /*#__PURE__*/React.createElement("div", {
+          key: i,
+          className: "open-pair-row",
+          onClick: () => {
+            setMatchPlayerA(pair.playerA.id);
+            setMatchPlayerB(pair.playerB.id);
+            setMatchCupsA("");
+            setMatchCupsB("");
+            setMatchWinner(null);
+            window.scrollTo({
+              top: 0,
+              behavior: 'smooth'
+            });
+          }
+        }, /*#__PURE__*/React.createElement("div", {
+          className: "open-pair-name"
+        }, pair.playerA.name), /*#__PURE__*/React.createElement("div", {
+          className: "open-pair-vs"
+        }, "VS"), /*#__PURE__*/React.createElement("div", {
+          className: "open-pair-name right"
+        }, pair.playerB.name), /*#__PURE__*/React.createElement("span", {
+          className: `open-pair-count ${cls}`
+        }, pair.played, "/", pair.total));
+      })));
+    }));
   })()), /*#__PURE__*/React.createElement("div", {
     className: "card"
   }, /*#__PURE__*/React.createElement("div", {
@@ -8918,7 +9009,14 @@ function LigaApp({
         className: "match-hist-score"
       }, m.cupsA, " : ", m.cupsB), /*#__PURE__*/React.createElement("div", {
         className: `match-hist-team right${m.winner === "B" ? " winner" : ""}`
-      }, sideB.join(" + ")), canEdit && /*#__PURE__*/React.createElement("button", {
+      }, sideB.join(" + ")), canEdit && (m.playersA ? m.playersA.length === 1 : true) && (m.playersB ? m.playersB.length === 1 : true) && /*#__PURE__*/React.createElement("button", {
+        className: "match-hist-del",
+        style: {
+          borderColor: "#5a5020",
+          color: "var(--gold)"
+        },
+        onClick: () => setEditMatchId(m.id)
+      }, "✏"), canEdit && !((m.playersA ? m.playersA.length === 1 : true) && (m.playersB ? m.playersB.length === 1 : true)) && /*#__PURE__*/React.createElement("span", null), canEdit && /*#__PURE__*/React.createElement("button", {
         className: "match-hist-del",
         onClick: () => deleteMatch(m.id)
       }, "✕"), !canEdit && /*#__PURE__*/React.createElement("span", null));
