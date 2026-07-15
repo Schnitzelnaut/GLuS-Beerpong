@@ -18,7 +18,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v127";
+const APP_VERSION = "glus-v128";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -6399,8 +6399,14 @@ function ProfileView({
     details: achDetails
   } = calcAchievements(player.id, players, matches, archive, tournamentWinners);
 
-  // Recent matches (this season + last 10 from archive)
-  const recentMatches = [...playerMatches].sort((a, b) => (b.date || 0) - (a.date || 0)).slice(0, 10);
+  // Recent matches (this season + last 10 from archive) — inkl. Spaßspiele
+  const playerMatchesAll = matches.filter(m => {
+    if (m.playerA === player.id || m.playerB === player.id) return true;
+    const sa = m.playersA || [],
+      sb = m.playersB || [];
+    return sa.includes(player.id) || sb.includes(player.id);
+  });
+  const recentMatches = [...playerMatchesAll].sort((a, b) => (b.date || 0) - (a.date || 0)).slice(0, 10);
   const playerById = Object.fromEntries(players.map(p => [p.id, p]));
 
   // Avatar upload handler
@@ -6945,9 +6951,15 @@ function ProfileView({
   }, "Noch keine Spiele in dieser Saison") : /*#__PURE__*/React.createElement("div", {
     className: "match-history"
   }, recentMatches.map(m => {
-    const isA = m.playerA === player.id;
-    const opp = playerById[isA ? m.playerB : m.playerA];
-    if (!opp) return null;
+    // Team-Seiten ermitteln (Spaßspiele können 2v2 sein)
+    const sideAIds = m.playersA || (m.playerA ? [m.playerA] : []);
+    const sideBIds = m.playersB || (m.playerB ? [m.playerB] : []);
+    const isA = sideAIds.includes(player.id);
+    const myIds = isA ? sideAIds : sideBIds;
+    const oppIds = isA ? sideBIds : sideAIds;
+    const myNames = myIds.map(id => playerById[id]?.name).filter(Boolean).join(" + ");
+    const oppNames = oppIds.map(id => playerById[id]?.name).filter(Boolean).join(" + ");
+    if (!myNames || !oppNames) return null;
     const myCups = isA ? m.cupsA : m.cupsB;
     const oppCups = isA ? m.cupsB : m.cupsA;
     const won = m.winner && (isA && m.winner === "A" || !isA && m.winner === "B");
@@ -6960,14 +6972,20 @@ function ProfileView({
       }
     }, /*#__PURE__*/React.createElement("div", {
       className: "match-hist-team" + (won ? " winner" : "")
-    }, player.name), /*#__PURE__*/React.createElement("div", {
+    }, m.isFunGame && /*#__PURE__*/React.createElement("span", {
+      title: "Spaß-Spiel",
+      style: {
+        marginRight: 4,
+        fontSize: 11
+      }
+    }, "🎮"), myNames), /*#__PURE__*/React.createElement("div", {
       className: "match-hist-score",
       style: {
         color: won ? "#8bc34a" : lost ? "#ff8a8a" : "var(--text)"
       }
     }, myCups, " : ", oppCups), /*#__PURE__*/React.createElement("div", {
       className: "match-hist-team right" + (lost ? " winner" : "")
-    }, opp.name));
+    }, oppNames));
   }))), (() => {
     const seasons = [...(archive || []).map(a => ({
       name: a.seasonName || "Archiv",
@@ -9938,29 +9956,25 @@ function LigaApp({
     const h2h = pa && pb ? calcH2H(pa.id, pb.id, allMatchesEver) : null;
     return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
       className: "h2h-selectors"
-    }, /*#__PURE__*/React.createElement("select", {
-      className: "match-entry-select",
+    }, /*#__PURE__*/React.createElement(PlayerCombobox, {
+      players: players,
       value: h2hPlayerA,
-      onChange: e => setH2HPlayerA(e.target.value)
-    }, /*#__PURE__*/React.createElement("option", {
-      value: ""
-    }, "— Spieler 1 wählen —"), players.map(p => /*#__PURE__*/React.createElement("option", {
-      key: p.id,
-      value: p.id,
-      disabled: p.id === h2hPlayerB
-    }, p.name, " (", ligaName(p.league), ")"))), /*#__PURE__*/React.createElement("div", {
+      onChange: setH2HPlayerA,
+      placeholder: "🔍 Spieler 1 — tippen oder wählen",
+      ligaName: ligaName,
+      isDisabled: p => p.id === h2hPlayerB,
+      disabledNote: () => "bereits gewählt"
+    }), /*#__PURE__*/React.createElement("div", {
       className: "h2h-vs-label"
-    }, "VS"), /*#__PURE__*/React.createElement("select", {
-      className: "match-entry-select",
+    }, "VS"), /*#__PURE__*/React.createElement(PlayerCombobox, {
+      players: players,
       value: h2hPlayerB,
-      onChange: e => setH2HPlayerB(e.target.value)
-    }, /*#__PURE__*/React.createElement("option", {
-      value: ""
-    }, "— Spieler 2 wählen —"), players.map(p => /*#__PURE__*/React.createElement("option", {
-      key: p.id,
-      value: p.id,
-      disabled: p.id === h2hPlayerA
-    }, p.name, " (", ligaName(p.league), ")")))), !pa || !pb ? /*#__PURE__*/React.createElement("div", {
+      onChange: setH2HPlayerB,
+      placeholder: "🔍 Spieler 2 — tippen oder wählen",
+      ligaName: ligaName,
+      isDisabled: p => p.id === h2hPlayerA,
+      disabledNote: () => "bereits gewählt"
+    })), !pa || !pb ? /*#__PURE__*/React.createElement("div", {
       className: "liga-empty"
     }, "Wähle 2 Spieler aus um den Direktvergleich zu sehen.") : /*#__PURE__*/React.createElement(React.Fragment, null, (() => {
       const lifetimeA = calcLifetimeStatsLastN(pa.id, matches, archive, 50);
