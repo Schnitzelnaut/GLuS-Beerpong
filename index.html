@@ -18,7 +18,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v126";
+const APP_VERSION = "glus-v127";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -5912,6 +5912,140 @@ function BackupsTab({
     onClick: () => setConfirmRestore(b)
   }, "🔄 Wiederherstellen")))))));
 }
+
+// Kombiniertes Such- + Auswahlfeld für Spieler.
+// Tippen filtert, Vorschläge erscheinen direkt darunter, Klick wählt aus.
+function PlayerCombobox({
+  players,
+  value,
+  onChange,
+  placeholder,
+  isDisabled,
+  disabledNote,
+  ligaName
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const selected = players.find(p => p.id === value);
+  const wrapRef = useRef(null);
+  useEffect(() => {
+    function onDocClick(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("touchstart", onDocClick);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("touchstart", onDocClick);
+    };
+  }, []);
+  const q = query.trim().toLowerCase();
+  const list = players.filter(p => !q || p.name.toLowerCase().includes(q));
+  // Angezeigter Text: beim Tippen die Query, sonst der gewählte Name
+  const shown = open ? query : selected ? selected.name : "";
+  return /*#__PURE__*/React.createElement("div", {
+    ref: wrapRef,
+    style: {
+      position: "relative"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "relative"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "match-entry-select",
+    style: {
+      width: "100%",
+      paddingRight: selected ? 34 : 12
+    },
+    placeholder: placeholder,
+    value: shown,
+    onFocus: () => {
+      setOpen(true);
+      setQuery("");
+    },
+    onChange: e => {
+      setQuery(e.target.value);
+      setOpen(true);
+    }
+  }), selected && !open && /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      onChange("");
+      setQuery("");
+    },
+    style: {
+      position: "absolute",
+      right: 6,
+      top: "50%",
+      transform: "translateY(-50%)",
+      background: "none",
+      border: "none",
+      color: "var(--dim)",
+      fontSize: 16,
+      cursor: "pointer",
+      padding: "4px 6px",
+      lineHeight: 1
+    },
+    title: "Auswahl löschen"
+  }, "✕")), open && /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      top: "100%",
+      left: 0,
+      right: 0,
+      zIndex: 200,
+      marginTop: 4,
+      background: "#0f2410",
+      border: "1px solid var(--gold)",
+      borderRadius: 6,
+      maxHeight: 260,
+      overflowY: "auto",
+      boxShadow: "0 8px 24px rgba(0,0,0,0.6)"
+    }
+  }, list.length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "12px",
+      color: "var(--dim)",
+      fontSize: 13,
+      textAlign: "center"
+    }
+  }, "Kein Spieler gefunden"), list.map(p => {
+    const dis = isDisabled ? isDisabled(p) : false;
+    return /*#__PURE__*/React.createElement("div", {
+      key: p.id,
+      onClick: () => {
+        if (dis) return;
+        onChange(p.id);
+        setQuery("");
+        setOpen(false);
+      },
+      style: {
+        padding: "11px 12px",
+        cursor: dis ? "not-allowed" : "pointer",
+        borderBottom: "1px solid rgba(255,255,255,0.05)",
+        background: p.id === value ? "rgba(240,192,64,0.12)" : "transparent",
+        opacity: dis ? 0.4 : 1,
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 8
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 14,
+        fontWeight: p.id === value ? 700 : 400,
+        color: p.id === value ? "var(--gold)" : "var(--text)"
+      }
+    }, p.name), /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 10,
+        color: "var(--dim)",
+        fontFamily: "'Barlow Condensed',sans-serif",
+        whiteSpace: "nowrap"
+      }
+    }, dis && disabledNote ? disabledNote(p) : ligaName ? ligaName(p.league) : ""));
+  })));
+}
 function EditMatchModal({
   match,
   playerA,
@@ -6952,8 +7086,6 @@ function LigaApp({
   const [matchPlayersB, setMatchPlayersB] = useState(["", "", "", "", ""]);
   const [openPairsSearch, setOpenPairsSearch] = useState("");
   const [expandedOpenLeagues, setExpandedOpenLeagues] = useState({});
-  const [searchA, setSearchA] = useState("");
-  const [searchB, setSearchB] = useState("");
   const [matchPlayerB, setMatchPlayerB] = useState("");
   const [matchCupsA, setMatchCupsA] = useState("");
   const [matchCupsB, setMatchCupsB] = useState("");
@@ -8603,28 +8735,23 @@ function LigaApp({
     className: "match-entry-side"
   }, Array.from({
     length: matchTeamSize
-  }).map((_, i) => /*#__PURE__*/React.createElement("select", {
+  }).map((_, i) => /*#__PURE__*/React.createElement("div", {
     key: i,
-    className: "match-entry-select",
     style: {
       marginBottom: 6
-    },
-    value: matchPlayersA[i] || "",
-    onChange: e => {
-      const n = [...matchPlayersA];
-      n[i] = e.target.value;
-      setMatchPlayersA(n);
     }
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, "— Spieler ", i + 1, " (Team A) —"), players.map(p => {
-    const usedA = matchPlayersA.filter((_, idx) => idx !== i).includes(p.id);
-    const usedB = matchPlayersB.slice(0, matchTeamSize).includes(p.id);
-    return /*#__PURE__*/React.createElement("option", {
-      key: p.id,
-      value: p.id,
-      disabled: usedA || usedB
-    }, p.name);
+  }, /*#__PURE__*/React.createElement(PlayerCombobox, {
+    players: players,
+    value: matchPlayersA[i] || "",
+    onChange: val => {
+      const n = [...matchPlayersA];
+      n[i] = val;
+      setMatchPlayersA(n);
+    },
+    placeholder: `🔍 Spieler ${i + 1} (Team A)`,
+    ligaName: ligaName,
+    isDisabled: p => matchPlayersA.filter((_, idx) => idx !== i).includes(p.id) || matchPlayersB.slice(0, matchTeamSize).includes(p.id),
+    disabledNote: () => "bereits gewählt"
   }))), /*#__PURE__*/React.createElement("div", {
     className: "match-entry-cups"
   }, /*#__PURE__*/React.createElement("input", {
@@ -8645,28 +8772,23 @@ function LigaApp({
     className: "match-entry-side"
   }, Array.from({
     length: matchTeamSize
-  }).map((_, i) => /*#__PURE__*/React.createElement("select", {
+  }).map((_, i) => /*#__PURE__*/React.createElement("div", {
     key: i,
-    className: "match-entry-select",
     style: {
       marginBottom: 6
-    },
-    value: matchPlayersB[i] || "",
-    onChange: e => {
-      const n = [...matchPlayersB];
-      n[i] = e.target.value;
-      setMatchPlayersB(n);
     }
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, "— Spieler ", i + 1, " (Team B) —"), players.map(p => {
-    const usedA = matchPlayersA.slice(0, matchTeamSize).includes(p.id);
-    const usedB = matchPlayersB.filter((_, idx) => idx !== i).includes(p.id);
-    return /*#__PURE__*/React.createElement("option", {
-      key: p.id,
-      value: p.id,
-      disabled: usedA || usedB
-    }, p.name);
+  }, /*#__PURE__*/React.createElement(PlayerCombobox, {
+    players: players,
+    value: matchPlayersB[i] || "",
+    onChange: val => {
+      const n = [...matchPlayersB];
+      n[i] = val;
+      setMatchPlayersB(n);
+    },
+    placeholder: `🔍 Spieler ${i + 1} (Team B)`,
+    ligaName: ligaName,
+    isDisabled: p => matchPlayersA.slice(0, matchTeamSize).includes(p.id) || matchPlayersB.filter((_, idx) => idx !== i).includes(p.id),
+    disabledNote: () => "bereits gewählt"
   }))), /*#__PURE__*/React.createElement("div", {
     className: "match-entry-cups"
   }, /*#__PURE__*/React.createElement("input", {
@@ -8723,29 +8845,15 @@ function LigaApp({
       className: "match-entry-row"
     }, /*#__PURE__*/React.createElement("div", {
       className: "match-entry-side"
-    }, players.length > 12 && /*#__PURE__*/React.createElement("input", {
-      className: "liga-add-input",
-      style: {
-        marginBottom: 6,
-        fontSize: 13
-      },
-      placeholder: "🔍 Spieler A suchen...",
-      value: searchA,
-      onChange: e => setSearchA(e.target.value)
-    }), /*#__PURE__*/React.createElement("select", {
-      className: "match-entry-select",
+    }, /*#__PURE__*/React.createElement(PlayerCombobox, {
+      players: players,
       value: matchPlayerA,
-      onChange: e => setMatchPlayerA(e.target.value)
-    }, /*#__PURE__*/React.createElement("option", {
-      value: ""
-    }, "— Spieler A wählen —"), players.filter(p => !searchA.trim() || p.name.toLowerCase().includes(searchA.trim().toLowerCase())).map(p => {
-      const isMaxed = matchPlayerB && playedFull(p.id, matchPlayerB);
-      return /*#__PURE__*/React.createElement("option", {
-        key: p.id,
-        value: p.id,
-        disabled: p.id === matchPlayerB || isMaxed
-      }, p.name, " (", ligaName(p.league), ")", isMaxed ? " — alle Spiele gespielt" : "");
-    })), /*#__PURE__*/React.createElement("div", {
+      onChange: setMatchPlayerA,
+      placeholder: "🔍 Spieler A — tippen oder wählen",
+      ligaName: ligaName,
+      isDisabled: p => p.id === matchPlayerB || matchPlayerB && playedFull(p.id, matchPlayerB),
+      disabledNote: p => p.id === matchPlayerB ? "bereits gewählt" : "alle Spiele gespielt"
+    }), /*#__PURE__*/React.createElement("div", {
       className: "match-entry-cups"
     }, /*#__PURE__*/React.createElement("input", {
       className: "match-entry-cup-input",
@@ -8763,29 +8871,15 @@ function LigaApp({
       className: "match-entry-vs"
     }, "VS"), /*#__PURE__*/React.createElement("div", {
       className: "match-entry-side"
-    }, players.length > 12 && /*#__PURE__*/React.createElement("input", {
-      className: "liga-add-input",
-      style: {
-        marginBottom: 6,
-        fontSize: 13
-      },
-      placeholder: "🔍 Spieler B suchen...",
-      value: searchB,
-      onChange: e => setSearchB(e.target.value)
-    }), /*#__PURE__*/React.createElement("select", {
-      className: "match-entry-select",
+    }, /*#__PURE__*/React.createElement(PlayerCombobox, {
+      players: players,
       value: matchPlayerB,
-      onChange: e => setMatchPlayerB(e.target.value)
-    }, /*#__PURE__*/React.createElement("option", {
-      value: ""
-    }, "— Spieler B wählen —"), players.filter(p => !searchB.trim() || p.name.toLowerCase().includes(searchB.trim().toLowerCase())).map(p => {
-      const isMaxed = matchPlayerA && playedFull(p.id, matchPlayerA);
-      return /*#__PURE__*/React.createElement("option", {
-        key: p.id,
-        value: p.id,
-        disabled: p.id === matchPlayerA || isMaxed
-      }, p.name, " (", ligaName(p.league), ")", isMaxed ? " — alle Spiele gespielt" : "");
-    })), /*#__PURE__*/React.createElement("div", {
+      onChange: setMatchPlayerB,
+      placeholder: "🔍 Spieler B — tippen oder wählen",
+      ligaName: ligaName,
+      isDisabled: p => p.id === matchPlayerA || matchPlayerA && playedFull(p.id, matchPlayerA),
+      disabledNote: p => p.id === matchPlayerA ? "bereits gewählt" : "alle Spiele gespielt"
+    }), /*#__PURE__*/React.createElement("div", {
       className: "match-entry-cups"
     }, /*#__PURE__*/React.createElement("input", {
       className: "match-entry-cup-input",
