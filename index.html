@@ -18,7 +18,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v128";
+const APP_VERSION = "glus-v130";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -669,6 +669,14 @@ const ACHIEVEMENTS = [
 }];
 
 // Calculate achievements for a single player
+// Stichtag für saison-gebundene Streak-Achievements.
+// Serien VOR diesem Zeitpunkt zählen nicht mehr; ab hier gilt: pro Saison
+// erspielbar, einmal erhalten bleibt es dauerhaft.
+// Wird beim App-Start aus dem Liga-State gesetzt (state.streakAchSince).
+let STREAK_ACH_SINCE = 0;
+function setStreakAchSince(ts) {
+  STREAK_ACH_SINCE = ts || 0;
+}
 function calcAchievements(playerId, players, matches, archive, tournamentWinners) {
   const earned = new Set();
   const details = {}; // achievementId -> detail string (who/when/what)
@@ -800,17 +808,80 @@ function calcAchievements(playerId, players, matches, archive, tournamentWinners
     earned.add("wuerfellaune");
     details.wuerfellaune = [`gegen ${getName(wuerfelopponent)}`];
   }
-  if (maxWinStreak >= 5) {
-    earned.add("hopfenhoernchen");
-    details.hopfenhoernchen = [`${maxWinStreak} Siege in Folge`];
-  }
-  if (maxWinStreak >= 10) {
-    earned.add("brandstifter");
-    details.brandstifter = [`${maxWinStreak} Siege in Folge`];
-  }
-  if (blitzkrugDay) {
-    earned.add("blitzkrug");
-    details.blitzkrug = [`am ${blitzkrugDay}`];
+  // ── SAISON-GEBUNDENE STREAK-ACHIEVEMENTS ──
+  // Zählen pro Saison einzeln: aktuelle Saison + alle archivierten Saisons,
+  // die NACH dem Stichtag (STREAK_ACH_SINCE) gestartet sind.
+  // → Alte Serien vor dem Stichtag zählen nicht, einmal erspielt bleibt es aber
+  //   für immer erhalten (auch nach Saisonende).
+  {
+    function streaksOf(list) {
+      const sm = list.filter(m => m && !m.isFunGame && m.winner && (m.playerA === playerId || m.playerB === playerId)).sort((a, b) => (a.date || 0) - (b.date || 0));
+      let cw = 0,
+        mw = 0,
+        cl = 0,
+        ml = 0,
+        bDay = null;
+      const wDay = {};
+      for (const m of sm) {
+        const isA = m.playerA === playerId;
+        const won = isA && m.winner === "A" || !isA && m.winner === "B";
+        if (won) {
+          cw++;
+          cl = 0;
+          if (cw > mw) mw = cw;
+          if (m.date) {
+            const day = new Date(m.date).toISOString().slice(0, 10);
+            wDay[day] = (wDay[day] || 0) + 1;
+            if (wDay[day] >= 3) bDay = day;
+          }
+        } else {
+          cl++;
+          cw = 0;
+          if (cl > ml) ml = cl;
+        }
+      }
+      return {
+        mw,
+        ml,
+        bDay
+      };
+    }
+
+    // Alle zu wertenden Saisons sammeln
+    const seasonsToCheck = [matches || []]; // aktuelle Saison zählt immer
+    for (const a of archive || []) {
+      const start = a.started || a.ended || 0;
+      if (start >= STREAK_ACH_SINCE) seasonsToCheck.push(a.matches || []);
+    }
+    let bestW = 0,
+      bestL = 0,
+      blitz = null;
+    for (const list of seasonsToCheck) {
+      const r = streaksOf(list);
+      if (r.mw > bestW) bestW = r.mw;
+      if (r.ml > bestL) bestL = r.ml;
+      if (r.bDay && !blitz) blitz = r.bDay;
+    }
+    if (bestW >= 5) {
+      earned.add("hopfenhoernchen");
+      details.hopfenhoernchen = [`${bestW} Siege in Folge`];
+    }
+    if (bestW >= 10) {
+      earned.add("brandstifter");
+      details.brandstifter = [`${bestW} Siege in Folge`];
+    }
+    if (blitz) {
+      earned.add("blitzkrug");
+      details.blitzkrug = [`am ${blitz}`];
+    }
+    if (bestL >= 5) {
+      earned.add("saure_gurke");
+      details.saure_gurke = [`${bestL} Niederlagen in Folge`];
+    }
+    if (bestL >= 10) {
+      earned.add("zigeunerfluch");
+      details.zigeunerfluch = [`${bestL} Niederlagen in Folge`];
+    }
   }
   if (theGood) {
     earned.add("the_good");
@@ -838,8 +909,8 @@ function calcAchievements(playerId, players, matches, archive, tournamentWinners
   if (totalGames >= 50) earned.add("games_50");
   if (totalGames >= 75) earned.add("games_75");
   if (totalGames >= 100) earned.add("games_100");
-  if (maxLossStreak >= 5) earned.add("saure_gurke");
-  if (maxLossStreak >= 10) earned.add("zigeunerfluch");
+
+  // saure_gurke / zigeunerfluch werden oben saison-gebunden vergeben
 
   // Angstgegner: DYNAMIC — only active if someone currently has 3+ consecutive losses against me
   const currentAngstOpps = Object.entries(opponentLossStreakVsMe).filter(([, streak]) => streak >= 3).map(([id]) => id);
@@ -1022,10 +1093,15 @@ function applyManualAchievementOverrides({
     details
   };
 
+  // Diese Achievements sind saison-gebunden (zählen nur die aktuelle Saison) —
+  // ein alter clearedAt-Zeitstempel darf sie nicht mehr blockieren.
+  const SEASON_SCOPED = ["hopfenhoernchen", "brandstifter", "blitzkrug", "saure_gurke", "zigeunerfluch"];
+
   // For each clearedAt achievement: remove from earned, then check if re-earned post-clearance
   const clearedAt = player.achievementClearedAt || {};
   for (const [achId, ts] of Object.entries(clearedAt)) {
     if (!ts) continue;
+    if (SEASON_SCOPED.includes(achId)) continue; // saison-gebunden → clearedAt ignorieren
     // Remove from earned (it was cleared)
     earned.delete(achId);
     delete details[achId];
@@ -7285,6 +7361,18 @@ function LigaApp({
   }
   const isAdmin = role === "admin";
   const canEdit = role === "admin" || role === "editor";
+
+  // Stichtag für Streak-Achievements: einmalig auf den Start der aktuellen
+  // Saison setzen. Danach zählen Serien pro Saison, bleiben aber dauerhaft.
+  const streakSince = state.streakAchSince ?? seasonStarted ?? 0;
+  setStreakAchSince(streakSince);
+  useEffect(() => {
+    if (state.streakAchSince === undefined && isAdmin && seasonStarted) {
+      update({
+        streakAchSince: seasonStarted
+      });
+    }
+  }, [state.streakAchSince, isAdmin, seasonStarted]);
 
   // ALL HOOKS MUST BE BEFORE ANY EARLY RETURNS
   // Compare table — alle Saisons zusammen (aktuelle + Archiv)
