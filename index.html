@@ -18,7 +18,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v130";
+const APP_VERSION = "glus-v131";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -1082,8 +1082,7 @@ function calcAchievements(playerId, players, matches, archive, tournamentWinners
 }
 
 // Apply manual achievement overrides:
-// - manualAchievements: always granted by admin (overrides auto)
-// - achievementClearedAt: {[id]: timestamp} — cleared; only keep if re-earned from post-clearance matches
+// - manualAchievements: vom Admin manuell vergeben (überschreibt Auto-Berechnung)
 function applyManualAchievementOverrides({
   earned,
   details
@@ -1093,143 +1092,12 @@ function applyManualAchievementOverrides({
     details
   };
 
-  // Diese Achievements sind saison-gebunden (zählen nur die aktuelle Saison) —
-  // ein alter clearedAt-Zeitstempel darf sie nicht mehr blockieren.
-  const SEASON_SCOPED = ["hopfenhoernchen", "brandstifter", "blitzkrug", "saure_gurke", "zigeunerfluch"];
-
-  // For each clearedAt achievement: remove from earned, then check if re-earned post-clearance
-  const clearedAt = player.achievementClearedAt || {};
-  for (const [achId, ts] of Object.entries(clearedAt)) {
-    if (!ts) continue;
-    if (SEASON_SCOPED.includes(achId)) continue; // saison-gebunden → clearedAt ignorieren
-    // Remove from earned (it was cleared)
-    earned.delete(achId);
-    delete details[achId];
-    // Check if re-earned from matches strictly AFTER the clearance
-    if (allMatchesRaw && playerId) {
-      const postMatches = allMatchesRaw.filter(m => (m.date || 0) > ts);
-      if (checkSingleAchievement(achId, playerId, postMatches)) {
-        earned.add(achId);
-      }
-    }
-  }
-
   // Manual grants always override everything
   for (const id of player.manualAchievements || []) earned.add(id);
   return {
     earned,
     details
   };
-}
-
-// Check if a single achievement is earned from a FILTERED set of matches (post-clearance)
-function checkSingleAchievement(achId, playerId, filteredMatches) {
-  let cupsFor = 0,
-    wins = 0,
-    losses = 0;
-  let currentWinStreak = 0,
-    maxWinStreak = 0;
-  let currentLossStreak = 0,
-    maxLossStreak = 0;
-  let knockout = false,
-    wuerfellaune = false;
-  const winsByDay = {};
-  const opponentLossStreakVsMe = {};
-  let angstgegner = false;
-  const sorted = [...filteredMatches].filter(m => m.winner && (m.playerA === playerId || m.playerB === playerId)).sort((a, b) => (a.date || 0) - (b.date || 0));
-  for (const m of sorted) {
-    const isA = m.playerA === playerId;
-    const myCups = isA ? m.cupsA : m.cupsB;
-    const oppCups = isA ? m.cupsB : m.cupsA;
-    const won = isA && m.winner === "A" || !isA && m.winner === "B";
-    const opponentId = isA ? m.playerB : m.playerA;
-    cupsFor += myCups;
-    if (won) {
-      wins++;
-      currentWinStreak++;
-      currentLossStreak = 0;
-      if (currentWinStreak > maxWinStreak) maxWinStreak = currentWinStreak;
-      if (myCups === 10 && oppCups === 0) knockout = true;
-      opponentLossStreakVsMe[opponentId] = (opponentLossStreakVsMe[opponentId] || 0) + 1;
-      if (opponentLossStreakVsMe[opponentId] >= 3) angstgegner = true;
-      if (m.date) {
-        const day = new Date(m.date).toISOString().slice(0, 10);
-        winsByDay[day] = (winsByDay[day] || 0) + 1;
-      }
-    } else {
-      losses++;
-      currentLossStreak++;
-      currentWinStreak = 0;
-      if (currentLossStreak > maxLossStreak) maxLossStreak = currentLossStreak;
-      if (myCups === 0 && oppCups >= 10) wuerfellaune = true;
-      opponentLossStreakVsMe[opponentId] = 0;
-    }
-  }
-  const totalGames = wins + losses;
-  switch (achId) {
-    case "first_win":
-      return wins > 0;
-    case "knockout":
-      return knockout;
-    case "wuerfellaune":
-      return wuerfellaune;
-    case "hopfenhoernchen":
-      return maxWinStreak >= 5;
-    case "brandstifter":
-      return maxWinStreak >= 10;
-    case "blitzkrug":
-      return Object.values(winsByDay).some(c => c >= 3);
-    case "cups_50":
-      return cupsFor >= 50;
-    case "cups_100":
-      return cupsFor >= 100;
-    case "cups_250":
-      return cupsFor >= 250;
-    case "cups_500":
-      return cupsFor >= 500;
-    case "cups_750":
-      return cupsFor >= 750;
-    case "cups_1000":
-      return cupsFor >= 1000;
-    case "games_5":
-      return totalGames >= 5;
-    case "games_10":
-      return totalGames >= 10;
-    case "games_25":
-      return totalGames >= 25;
-    case "games_50":
-      return totalGames >= 50;
-    case "games_75":
-      return totalGames >= 75;
-    case "games_100":
-      return totalGames >= 100;
-    case "stern":
-      return totalGames >= 10 && wins / totalGames >= 0.75;
-    case "saure_gurke":
-      return maxLossStreak >= 5;
-    case "zigeunerfluch":
-      return maxLossStreak >= 10;
-    case "angstgegner":
-      return angstgegner;
-    case "rivale":
-      {
-        const h2hMe = {},
-          h2hOpp = {};
-        for (const m of sorted) {
-          const isA = m.playerA === playerId;
-          const oppId = isA ? m.playerB : m.playerA;
-          const won = isA && m.winner === "A" || !isA && m.winner === "B";
-          h2hMe[oppId] = (h2hMe[oppId] || 0) + (won ? 1 : 0);
-          h2hOpp[oppId] = (h2hOpp[oppId] || 0) + (won ? 0 : 1);
-        }
-        return Object.keys(h2hMe).some(id => h2hMe[id] > 0 && h2hMe[id] === h2hOpp[id]);
-      }
-    case "premiere":
-      return totalGames > 0;
-    default:
-      return false;
-    // season/drama/datum achievements can't be re-earned this way
-  }
 }
 
 // Form string — last 5 games as outcomes ("WLWLW" or array of W/L)
@@ -6257,14 +6125,12 @@ function AchievementsGrid({
   player,
   isAdmin,
   onGrant,
-  onRevoke,
-  onReset
+  onUngrant
 }) {
   const earnedSet = earned instanceof Set ? earned : new Set(earned || []);
   const achDetails = details || {};
   const earnedCount = ACHIEVEMENTS.filter(a => earnedSet.has(a.id)).length;
   const manualAdd = new Set(player?.manualAchievements || []);
-  const clearedAt = player?.achievementClearedAt || {};
   const cats = {
     skill: "🎯 Skill",
     cups: "🍺 Becher",
@@ -6294,7 +6160,7 @@ function AchievementsGrid({
       fontSize: 12,
       color: "var(--dim)"
     }
-  }, "👑 Klick = Vergeben / Entfernen (kann neu verdient werden) / Zurücksetzen")), Object.keys(cats).map(catKey => {
+  }, "👑 Klick = manuell vergeben / wieder entfernen")), Object.keys(cats).map(catKey => {
     const inCat = ACHIEVEMENTS.filter(a => a.category === catKey);
     if (inCat.length === 0) return null;
     return /*#__PURE__*/React.createElement("div", {
@@ -6317,29 +6183,17 @@ function AchievementsGrid({
     }, inCat.map(a => {
       const got = earnedSet.has(a.id);
       const manuallyAdded = manualAdd.has(a.id);
-      const cleared = !!clearedAt[a.id];
 
-      // Click cycle:
-      // locked (auto) → grant (manual)
-      // earned (auto) → revoke (can re-earn)
-      // cleared (waiting to re-earn) → reset (back to pure auto)
-      // manually granted → reset (back to pure auto)
+      // Klick: manuell vergeben ⇄ manuelle Vergabe entfernen.
+      // Automatisch verdiente Achievements sind nicht entfernbar.
       function handleClick() {
-        if (manuallyAdded) {
-          onReset(player.id, a.id); // remove manual grant
-        } else if (cleared) {
-          onReset(player.id, a.id); // clear the clearedAt → auto-calc again
-        } else if (got) {
-          onRevoke(player.id, a.id); // earned → needs to re-earn
-        } else {
-          onGrant(player.id, a.id); // not earned → manually grant
-        }
+        if (manuallyAdded) onUngrant(player.id, a.id);else if (!got) onGrant(player.id, a.id);
       }
       return /*#__PURE__*/React.createElement("div", {
         key: a.id,
-        className: `ach-card ${got && !cleared ? "earned" : "locked"}`,
+        className: `ach-card ${got ? "earned" : "locked"}`,
         style: isAdmin ? {
-          cursor: "pointer"
+          cursor: manuallyAdded || !got ? "pointer" : "default"
         } : undefined,
         onClick: isAdmin ? handleClick : undefined
       }, /*#__PURE__*/React.createElement("div", {
@@ -6348,7 +6202,7 @@ function AchievementsGrid({
         className: "ach-name"
       }, a.name), /*#__PURE__*/React.createElement("div", {
         className: "ach-desc"
-      }, a.desc), got && !cleared && achDetails[a.id] && achDetails[a.id].length > 0 && /*#__PURE__*/React.createElement("div", {
+      }, a.desc), got && achDetails[a.id] && achDetails[a.id].length > 0 && /*#__PURE__*/React.createElement("div", {
         style: {
           fontSize: 10,
           color: "var(--gold)",
@@ -6371,20 +6225,7 @@ function AchievementsGrid({
           fontFamily: "'Barlow Condensed',sans-serif",
           fontWeight: 700
         }
-      }, "+ MANUELL"), isAdmin && cleared && !manuallyAdded && /*#__PURE__*/React.createElement("div", {
-        style: {
-          position: "absolute",
-          top: 4,
-          right: 4,
-          fontSize: 10,
-          color: "#f0c040",
-          background: "rgba(0,0,0,0.6)",
-          padding: "1px 5px",
-          borderRadius: 3,
-          fontFamily: "'Barlow Condensed',sans-serif",
-          fontWeight: 700
-        }
-      }, "↩ RESET"));
+      }, "+ MANUELL"));
     })));
   }));
 }
@@ -6397,9 +6238,7 @@ function ProfileView({
   onBack,
   onEditAvatar,
   onGrantAchievement,
-  onRevokeAchievement,
-  onResetAchievement,
-  onResetAllAchievements,
+  onUngrantAchievement,
   isAdmin,
   ligaName,
   leagueConfig,
@@ -6980,44 +6819,19 @@ function ProfileView({
       marginBottom: 18
     }
   }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      flexWrap: "wrap",
-      gap: 10,
-      marginBottom: 14
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "card-title",
-    style: {
-      marginBottom: 0
-    }
-  }, "🏅 Achievements"), isAdmin && /*#__PURE__*/React.createElement("button", {
-    className: "danger-btn",
-    style: {
-      padding: "6px 12px",
-      fontSize: 11,
-      letterSpacing: 1
-    },
-    onClick: () => {
-      if (confirm(`Alle Achievements von ${player.name} zurücksetzen? Alle manuellen Vergaben und Entfernungen werden gelöscht — die App rechnet alles frisch aus den Spieldaten.`)) {
-        onResetAllAchievements(player.id);
-      }
-    }
-  }, "🔄 Alle zurücksetzen")), isAdmin && /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "🏅 Achievements"), isAdmin && /*#__PURE__*/React.createElement("div", {
     className: "info-box",
     style: {
       marginBottom: 12
     }
-  }, /*#__PURE__*/React.createElement("strong", null, "Klick auf eine Karte"), " um Achievements manuell zu vergeben oder zu entfernen.", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("strong", null, "„Alle zurücksetzen\""), " löscht alle manuellen Overrides — die App berechnet alles automatisch neu aus den Spielergebnissen. Nützlich wenn durch falsche Timestamps falsche Achievements vergeben wurden."), /*#__PURE__*/React.createElement(AchievementsGrid, {
+  }, /*#__PURE__*/React.createElement("strong", null, "Klick auf eine Karte"), " um ein Achievement manuell zu vergeben. Nochmal klicken entfernt die manuelle Vergabe wieder. Automatisch verdiente Achievements werden aus den Spieldaten berechnet."), /*#__PURE__*/React.createElement(AchievementsGrid, {
     earned: earned,
     details: achDetails,
     player: player,
     isAdmin: isAdmin,
     onGrant: onGrantAchievement,
-    onRevoke: onRevokeAchievement,
-    onReset: onResetAchievement
+    onUngrant: onUngrantAchievement
   })), /*#__PURE__*/React.createElement("div", {
     className: "card"
   }, /*#__PURE__*/React.createElement("div", {
@@ -7591,81 +7405,27 @@ function LigaApp({
         if (p.id !== playerId) return p;
         const manualAdd = new Set(p.manualAchievements || []);
         manualAdd.add(achievementId);
-        // Also clear any clearedAt for this achievement (manual grant overrides)
-        const clearedAt = {
-          ...(p.achievementClearedAt || {})
-        };
-        delete clearedAt[achievementId];
         return {
           ...p,
-          manualAchievements: [...manualAdd],
-          achievementClearedAt: clearedAt
+          manualAchievements: [...manualAdd]
         };
       })
     });
   }
-  function revokeAchievement(playerId, achievementId) {
+
+  // Manuelle Vergabe wieder entfernen (Auto-Berechnung bleibt unberührt)
+  function ungrantAchievement(playerId, achievementId) {
     if (!isAdmin) return;
-    // Store clearedAt = now. Player must re-earn from future matches.
-    const ts = Date.now();
-    update({
-      players: players.map(p => {
-        if (p.id !== playerId) return p;
-        const manualAdd = new Set(p.manualAchievements || []);
-        manualAdd.delete(achievementId); // also remove if manually granted
-        return {
-          ...p,
-          manualAchievements: [...manualAdd],
-          achievementClearedAt: {
-            ...(p.achievementClearedAt || {}),
-            [achievementId]: ts
-          }
-        };
-      })
-    });
-  }
-  function resetAchievementOverride(playerId, achievementId) {
-    if (!isAdmin) return;
-    // Clears both manual grant and clearedAt → pure auto-calc
     update({
       players: players.map(p => {
         if (p.id !== playerId) return p;
         const manualAdd = new Set(p.manualAchievements || []);
         manualAdd.delete(achievementId);
-        const clearedAt = {
-          ...(p.achievementClearedAt || {})
-        };
-        delete clearedAt[achievementId];
         return {
           ...p,
-          manualAchievements: [...manualAdd],
-          achievementClearedAt: clearedAt
+          manualAchievements: [...manualAdd]
         };
       })
-    });
-  }
-
-  // Reset ALL achievement overrides for one player → auto-calc takes over completely
-  function resetAllAchievementsForPlayer(playerId) {
-    if (!isAdmin) return;
-    update({
-      players: players.map(p => p.id !== playerId ? p : {
-        ...p,
-        manualAchievements: [],
-        achievementClearedAt: {}
-      })
-    });
-  }
-
-  // Reset ALL achievement overrides for ALL players
-  function resetAllAchievementsGlobal() {
-    if (!isAdmin) return;
-    update({
-      players: players.map(p => ({
-        ...p,
-        manualAchievements: [],
-        achievementClearedAt: {}
-      }))
     });
   }
 
@@ -8315,9 +8075,7 @@ function LigaApp({
     onBack: () => setViewProfileId(null),
     onEditAvatar: setPlayerAvatar,
     onGrantAchievement: grantAchievement,
-    onRevokeAchievement: revokeAchievement,
-    onResetAchievement: resetAchievementOverride,
-    onResetAllAchievements: resetAllAchievementsForPlayer,
+    onUngrantAchievement: ungrantAchievement,
     isAdmin: isAdmin,
     ligaName: ligaName,
     leagueConfig: leagueConfig,
@@ -10890,72 +10648,6 @@ function LigaApp({
       color: "var(--dim)"
     }
   }, "Passwörter sind im Quellcode hinterlegt und gelten für alle Geräte."))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      borderTop: "1px solid var(--border)",
-      margin: "22px 0 14px",
-      paddingTop: 14
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "info-box",
-    style: {
-      marginTop: 0,
-      borderLeftColor: "#f0a050"
-    }
-  }, /*#__PURE__*/React.createElement("strong", null, "⚡ Streak-Achievements zurücksetzen (global):"), " Setzt Hopfenhörnchen, Brandstifter, Blitzkrug, Saure Gurke und Zigeunerfluch bei allen Spielern auf 0 zurück. Ab jetzt müssen neue Streaks erst wieder aufgebaut werden. Alte Spiele zählen nicht mehr."), /*#__PURE__*/React.createElement("button", {
-    className: "danger-btn",
-    style: {
-      width: "100%",
-      marginTop: 12,
-      borderColor: "#f0a050",
-      color: "#f0a050"
-    },
-    onClick: () => setConfirmAction({
-      title: "Streak-Achievements zurücksetzen?",
-      message: "Hopfenhörnchen, Brandstifter, Blitzkrug, Saure Gurke und Zigeunerfluch werden für ALLE Spieler zurückgesetzt. Neue Streaks müssen ab jetzt neu aufgebaut werden.",
-      onConfirm: () => {
-        const streakIds = ["hopfenhoernchen", "brandstifter", "blitzkrug", "saure_gurke", "zigeunerfluch"];
-        const ts = Date.now();
-        update({
-          players: players.map(p => ({
-            ...p,
-            achievementClearedAt: {
-              ...(p.achievementClearedAt || {}),
-              ...Object.fromEntries(streakIds.map(id => [id, ts]))
-            }
-          }))
-        });
-        setConfirmAction(null);
-      }
-    })
-  }, "⚡ Streak-Achievements aller Spieler zurücksetzen")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      borderTop: "1px solid var(--border)",
-      margin: "22px 0 14px",
-      paddingTop: 14
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "info-box",
-    style: {
-      marginTop: 0,
-      borderLeftColor: "#a0c040"
-    }
-  }, /*#__PURE__*/React.createElement("strong", null, "🔄 Alle Achievements zurücksetzen (global):"), " Löscht alle manuellen Achievement-Vergaben und -Entfernungen bei ", /*#__PURE__*/React.createElement("strong", null, "allen Spielern"), ". Die App berechnet alles automatisch neu aus den Spielergebnissen. Nützlich wenn durch falsche Timestamps viele falsche Achievements entstanden sind."), /*#__PURE__*/React.createElement("button", {
-    className: "danger-btn",
-    style: {
-      width: "100%",
-      marginTop: 12,
-      borderColor: "#a0c040",
-      color: "#a0c040"
-    },
-    onClick: () => setConfirmAction({
-      title: "Alle Achievements zurücksetzen?",
-      message: "Alle manuellen Achievement-Vergaben und -Entfernungen werden bei ALLEN Spielern gelöscht. Die Auto-Berechnung übernimmt wieder. Spiele und Spieler bleiben unverändert.",
-      onConfirm: () => {
-        resetAllAchievementsGlobal();
-        setConfirmAction(null);
-      }
-    })
-  }, "🔄 Alle Achievements aller Spieler zurücksetzen")), /*#__PURE__*/React.createElement("div", {
     style: {
       borderTop: "1px solid var(--border)",
       margin: "22px 0 14px",
