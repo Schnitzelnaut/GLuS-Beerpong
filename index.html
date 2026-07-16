@@ -18,7 +18,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v131";
+const APP_VERSION = "glus-v132";
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
@@ -4640,6 +4640,7 @@ function BottomNav({
     compare: "📊",
     achievements: "🏅",
     hof: "🌟",
+    calendar: "📅",
     archive: "📁",
     backups: "💾",
     settings: "⚙️",
@@ -4652,6 +4653,7 @@ function BottomNav({
     compare: "Vergleich",
     achievements: "Awards",
     hof: "Hall of Fame",
+    calendar: "Kalender",
     archive: "Archiv",
     backups: "Backups",
     settings: "Einst.",
@@ -6119,6 +6121,448 @@ function EditMatchModal({
     })
   }, "Speichern"))));
 }
+
+// ── KALENDER ──────────────────────────────────────────────────────────────
+// Zeigt geplante Spieltage (vom Admin angelegt) und rückblickend die Tage
+// an denen tatsächlich Spiele eingetragen wurden.
+function CalendarView({
+  events,
+  matches,
+  players,
+  isAdmin,
+  onAddEvent,
+  onDeleteEvent
+}) {
+  const today = new Date();
+  const [viewY, setViewY] = useState(today.getFullYear());
+  const [viewM, setViewM] = useState(today.getMonth()); // 0-11
+  const [selDay, setSelDay] = useState(null); // "YYYY-MM-DD"
+  const [showAdd, setShowAdd] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newTime, setNewTime] = useState("");
+  const [newNote, setNewNote] = useState("");
+  const playerById = Object.fromEntries((players || []).map(p => [p.id, p]));
+  const dayKey = d => {
+    const dt = new Date(d);
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+  };
+
+  // Spiele pro Tag gruppieren
+  const matchesByDay = {};
+  for (const m of matches || []) {
+    if (!m.date || !m.winner) continue;
+    const k = dayKey(m.date);
+    (matchesByDay[k] = matchesByDay[k] || []).push(m);
+  }
+  // Events pro Tag
+  const eventsByDay = {};
+  for (const e of events || []) {
+    if (!e.day) continue;
+    (eventsByDay[e.day] = eventsByDay[e.day] || []).push(e);
+  }
+
+  // Monatsraster bauen (Montag als erster Tag)
+  const first = new Date(viewY, viewM, 1);
+  const daysInMonth = new Date(viewY, viewM + 1, 0).getDate();
+  let startWd = first.getDay(); // 0=So
+  startWd = startWd === 0 ? 6 : startWd - 1; // Mo=0
+  const cells = [];
+  for (let i = 0; i < startWd; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  const monthNames = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
+  const todayKey = dayKey(today);
+  function shiftMonth(delta) {
+    let m = viewM + delta,
+      y = viewY;
+    if (m < 0) {
+      m = 11;
+      y--;
+    }
+    if (m > 11) {
+      m = 0;
+      y++;
+    }
+    setViewM(m);
+    setViewY(y);
+    setSelDay(null);
+  }
+  function keyFor(d) {
+    return `${viewY}-${String(viewM + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+  const selEvents = selDay ? eventsByDay[selDay] || [] : [];
+  const selMatches = selDay ? matchesByDay[selDay] || [] : [];
+
+  // Kommende Spieltage (ab heute)
+  const upcoming = (events || []).filter(e => e.day && e.day >= todayKey).sort((a, b) => a.day.localeCompare(b.day)).slice(0, 5);
+  return /*#__PURE__*/React.createElement("div", null, upcoming.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "card",
+    style: {
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "🎯 Nächste Spieltage"), upcoming.map(e => {
+    const dt = new Date(e.day + "T00:00:00");
+    const isToday = e.day === todayKey;
+    return /*#__PURE__*/React.createElement("div", {
+      key: e.id,
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "8px 0",
+        borderBottom: "1px solid rgba(255,255,255,0.05)"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        textAlign: "center",
+        minWidth: 44,
+        padding: "4px 6px",
+        borderRadius: 6,
+        background: isToday ? "var(--gold)" : "rgba(240,192,64,0.12)",
+        color: isToday ? "#0e1a0e" : "var(--gold)"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: "'Barlow Condensed',sans-serif",
+        fontSize: 18,
+        fontWeight: 800,
+        lineHeight: 1
+      }
+    }, dt.getDate()), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 9,
+        textTransform: "uppercase",
+        letterSpacing: 1
+      }
+    }, monthNames[dt.getMonth()].slice(0, 3))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontWeight: 700,
+        fontSize: 14
+      }
+    }, e.title, isToday && /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--gold)",
+        marginLeft: 6,
+        fontSize: 11
+      }
+    }, "HEUTE")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 11,
+        color: "var(--dim)"
+      }
+    }, ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"][dt.getDay()], e.time ? ` · ${e.time} Uhr` : "", e.note ? ` · ${e.note}` : "")));
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "card",
+    style: {
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "demo-btn",
+    style: {
+      padding: "6px 12px"
+    },
+    onClick: () => shiftMonth(-1)
+  }, "‹"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "'Permanent Marker',cursive",
+      fontSize: 20,
+      color: "var(--gold)"
+    }
+  }, monthNames[viewM], " ", viewY), /*#__PURE__*/React.createElement("button", {
+    className: "demo-btn",
+    style: {
+      padding: "6px 12px"
+    },
+    onClick: () => shiftMonth(1)
+  }, "›")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(7,1fr)",
+      gap: 3,
+      marginBottom: 4
+    }
+  }, ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"].map(d => /*#__PURE__*/React.createElement("div", {
+    key: d,
+    style: {
+      textAlign: "center",
+      fontSize: 10,
+      color: "var(--dim)",
+      fontFamily: "'Barlow Condensed',sans-serif",
+      letterSpacing: 1,
+      textTransform: "uppercase"
+    }
+  }, d))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(7,1fr)",
+      gap: 3
+    }
+  }, cells.map((d, i) => {
+    if (d === null) return /*#__PURE__*/React.createElement("div", {
+      key: "e" + i
+    });
+    const k = keyFor(d);
+    const hasEvent = !!eventsByDay[k];
+    const nMatches = (matchesByDay[k] || []).length;
+    const isToday = k === todayKey;
+    const isSel = k === selDay;
+    return /*#__PURE__*/React.createElement("div", {
+      key: k,
+      onClick: () => setSelDay(isSel ? null : k),
+      style: {
+        aspectRatio: "1",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        cursor: "pointer",
+        borderRadius: 6,
+        position: "relative",
+        background: isSel ? "rgba(240,192,64,0.25)" : hasEvent ? "rgba(240,192,64,0.10)" : "rgba(255,255,255,0.02)",
+        border: isToday ? "1px solid var(--gold)" : "1px solid transparent"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13,
+        fontWeight: hasEvent ? 800 : 400,
+        color: hasEvent ? "var(--gold)" : isToday ? "var(--gold)" : "var(--text)"
+      }
+    }, d), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        gap: 2,
+        marginTop: 2,
+        minHeight: 5
+      }
+    }, hasEvent && /*#__PURE__*/React.createElement("span", {
+      style: {
+        width: 5,
+        height: 5,
+        borderRadius: "50%",
+        background: "var(--gold)"
+      }
+    }), nMatches > 0 && /*#__PURE__*/React.createElement("span", {
+      style: {
+        width: 5,
+        height: 5,
+        borderRadius: "50%",
+        background: "#8bc34a"
+      }
+    })));
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 14,
+      justifyContent: "center",
+      marginTop: 10,
+      fontSize: 10,
+      color: "var(--dim)"
+    }
+  }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-block",
+      width: 6,
+      height: 6,
+      borderRadius: "50%",
+      background: "var(--gold)",
+      marginRight: 4
+    }
+  }), "Spieltag"), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-block",
+      width: 6,
+      height: 6,
+      borderRadius: "50%",
+      background: "#8bc34a",
+      marginRight: 4
+    }
+  }), "Spiele gespielt"))), selDay && /*#__PURE__*/React.createElement("div", {
+    className: "card",
+    style: {
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "card-title"
+  }, "📅 ", new Date(selDay + "T00:00:00").toLocaleDateString("de-DE", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric"
+  })), selEvents.map(e => /*#__PURE__*/React.createElement("div", {
+    key: e.id,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      padding: "8px 10px",
+      marginBottom: 8,
+      background: "rgba(240,192,64,0.08)",
+      border: "1px solid rgba(240,192,64,0.25)",
+      borderRadius: 6
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 18
+    }
+  }, "🍺"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      fontSize: 14,
+      color: "var(--gold)"
+    }
+  }, e.title), (e.time || e.note) && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--dim)"
+    }
+  }, e.time ? `${e.time} Uhr` : "", e.time && e.note ? " · " : "", e.note || "")), isAdmin && /*#__PURE__*/React.createElement("button", {
+    className: "match-hist-del",
+    onClick: () => onDeleteEvent(e.id)
+  }, "✕"))), isAdmin && !showAdd && /*#__PURE__*/React.createElement("button", {
+    className: "demo-btn",
+    style: {
+      width: "100%",
+      marginBottom: 10
+    },
+    onClick: () => setShowAdd(true)
+  }, "➕ Spieltag hinzufügen"), isAdmin && showAdd && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 12px",
+      background: "rgba(10,28,10,0.4)",
+      border: "1px solid var(--border)",
+      borderRadius: 6,
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "liga-add-input",
+    style: {
+      width: "100%",
+      marginBottom: 6
+    },
+    placeholder: "Titel (z.B. Spieltag im Garten)",
+    value: newTitle,
+    onChange: e => setNewTitle(e.target.value)
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      marginBottom: 6
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "liga-add-input",
+    style: {
+      flex: "0 0 100px"
+    },
+    placeholder: "18:00",
+    value: newTime,
+    onChange: e => setNewTime(e.target.value)
+  }), /*#__PURE__*/React.createElement("input", {
+    className: "liga-add-input",
+    style: {
+      flex: 1
+    },
+    placeholder: "Notiz (optional)",
+    value: newNote,
+    onChange: e => setNewNote(e.target.value)
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "demo-btn",
+    style: {
+      flex: 1
+    },
+    onClick: () => {
+      setShowAdd(false);
+      setNewTitle("");
+      setNewTime("");
+      setNewNote("");
+    }
+  }, "Abbrechen"), /*#__PURE__*/React.createElement("button", {
+    className: "big-btn",
+    style: {
+      flex: 1,
+      margin: 0,
+      fontSize: 14,
+      padding: "10px"
+    },
+    disabled: !newTitle.trim(),
+    onClick: () => {
+      onAddEvent({
+        day: selDay,
+        title: newTitle.trim(),
+        time: newTime.trim(),
+        note: newNote.trim()
+      });
+      setShowAdd(false);
+      setNewTitle("");
+      setNewTime("");
+      setNewNote("");
+    }
+  }, "Speichern"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: "'Barlow Condensed',sans-serif",
+      fontSize: 11,
+      letterSpacing: 1.5,
+      textTransform: "uppercase",
+      color: "var(--dim)",
+      marginBottom: 6,
+      marginTop: 12
+    }
+  }, "⚔️ Spiele an diesem Tag (", selMatches.length, ")"), selMatches.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "liga-empty",
+    style: {
+      padding: "12px"
+    }
+  }, "Keine Spiele eingetragen") : /*#__PURE__*/React.createElement("div", {
+    className: "match-history"
+  }, selMatches.map(m => {
+    const sideA = (m.playersA || (m.playerA ? [m.playerA] : [])).map(id => playerById[id]?.name).filter(Boolean);
+    const sideB = (m.playersB || (m.playerB ? [m.playerB] : [])).map(id => playerById[id]?.name).filter(Boolean);
+    if (!sideA.length || !sideB.length) return null;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "match-hist-row",
+      key: m.id,
+      style: {
+        gridTemplateColumns: "1fr auto 1fr"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "match-hist-team" + (m.winner === "A" ? " winner" : "")
+    }, m.isFunGame && /*#__PURE__*/React.createElement("span", {
+      style: {
+        marginRight: 4,
+        fontSize: 11
+      }
+    }, "🎮"), sideA.join(" + ")), /*#__PURE__*/React.createElement("div", {
+      className: "match-hist-score"
+    }, m.cupsA, " : ", m.cupsB), /*#__PURE__*/React.createElement("div", {
+      className: "match-hist-team right" + (m.winner === "B" ? " winner" : "")
+    }, sideB.join(" + ")));
+  }))), !selDay && /*#__PURE__*/React.createElement("div", {
+    className: "info-box"
+  }, "Tippe auf einen Tag um Details zu sehen.", isAdmin ? " Als Admin kannst du dort Spieltage anlegen." : ""));
+}
+
+// ── KALENDER ENDE ─────────────────────────────────────────────────────────
+
 function AchievementsGrid({
   earned,
   details,
@@ -7398,6 +7842,24 @@ function LigaApp({
       } : p)
     });
   }
+
+  // ── Kalender-Events ──
+  function addCalendarEvent(ev) {
+    if (!isAdmin) return;
+    const id = "ev_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
+    update({
+      calendarEvents: [...(state.calendarEvents || []), {
+        id,
+        ...ev
+      }]
+    });
+  }
+  function deleteCalendarEvent(id) {
+    if (!isAdmin) return;
+    update({
+      calendarEvents: (state.calendarEvents || []).filter(e => e.id !== id)
+    });
+  }
   function grantAchievement(playerId, achievementId) {
     if (!isAdmin) return;
     update({
@@ -7718,6 +8180,9 @@ function LigaApp({
   }, {
     id: "hof",
     label: "🏛️ Hall of Fame"
+  }, {
+    id: "calendar",
+    label: "📅 Kalender"
   }, {
     id: "archive",
     label: "📚 Archiv"
@@ -9554,7 +10019,14 @@ function LigaApp({
       className: "ach-badge-mini",
       title: a.name + " — " + a.desc
     }, a.icon))));
-  })))), tab === "hof" && (() => {
+  })))), tab === "calendar" && /*#__PURE__*/React.createElement(CalendarView, {
+    events: state.calendarEvents || [],
+    matches: matches,
+    players: players,
+    isAdmin: isAdmin,
+    onAddEvent: addCalendarEvent,
+    onDeleteEvent: deleteCalendarEvent
+  }), tab === "hof" && (() => {
     const hof = state.hallOfFame || {
       tournament: [],
       league: []
