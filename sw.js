@@ -1,4 +1,4 @@
-const CACHE='glus-v139';
+const CACHE='glus-v140';
 const ASSETS=['./','./index.html','./manifest.json','./icon-192.png','./icon-512.png','./apple-touch-icon.png','./favicon.png'];
 const FIREBASE_URL='https://glus-bierpong-default-rtdb.europe-west1.firebasedatabase.app';
 const VAPID_PUBLIC_KEY='BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74';
