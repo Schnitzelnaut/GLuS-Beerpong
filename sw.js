@@ -1,4 +1,4 @@
-const CACHE='glus-v144';
+const CACHE='glus-v145';
 const ASSETS=['./','./index.html','./manifest.json','./icon-192.png','./icon-512.png','./apple-touch-icon.png','./favicon.png'];
 const FIREBASE_URL='https://glus-bierpong-default-rtdb.europe-west1.firebasedatabase.app';
 const VAPID_PUBLIC_KEY='BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74';
@@ -31,6 +31,22 @@ self.addEventListener('pushsubscriptionchange',e=>{
   })());
 });
 
-self.addEventListener('fetch',e=>{if(e.request.url.includes('firebasedatabase.app')||e.request.url.includes('googleapis.com')||e.request.url.includes('workers.dev'))return;e.respondWith(caches.match(e.request).then(cached=>{const fp=fetch(e.request).then(r=>{if(r&&r.status===200&&e.request.method==='GET'){caches.open(CACHE).then(c=>c.put(e.request,r.clone())).catch(()=>{});}return r;}).catch(()=>cached);return cached||fp;}));});
+self.addEventListener('fetch',e=>{
+  const url=e.request.url;
+  if(url.includes('firebasedatabase.app')||url.includes('googleapis.com')||url.includes('workers.dev'))return;
+  // HTML-Navigation: NETWORK-FIRST (verhindert dass eine kaputte gecachte Seite haengenbleibt)
+  const isNav = e.request.mode==='navigate' || (e.request.destination==='document') || (e.request.headers.get('accept')||'').includes('text/html');
+  if(isNav){
+    e.respondWith(
+      fetch(e.request).then(r=>{
+        if(r&&r.status===200){caches.open(CACHE).then(c=>c.put(e.request,r.clone())).catch(()=>{});}
+        return r;
+      }).catch(()=>caches.match(e.request).then(c=>c||caches.match('./index.html')))
+    );
+    return;
+  }
+  // Andere Assets: cache-first mit Hintergrund-Update
+  e.respondWith(caches.match(e.request).then(cached=>{const fp=fetch(e.request).then(r=>{if(r&&r.status===200&&e.request.method==='GET'){caches.open(CACHE).then(c=>c.put(e.request,r.clone())).catch(()=>{});}return r;}).catch(()=>cached);return cached||fp;}));
+});
 self.addEventListener('push',e=>{const d=e.data?e.data.json():{};e.waitUntil(self.registration.showNotification(d.title||'GLuS BeerPong',{body:d.body||'',icon:'./icon-192.png',badge:'./favicon.png',data:{url:d.url||'/GLuS-Beerpong/'},vibrate:[200,100,200]}));});
 self.addEventListener('notificationclick',e=>{e.notification.close();const url=e.notification.data?.url||'/GLuS-Beerpong/';e.waitUntil(clients.matchAll({type:'window'}).then(cs=>{for(const c of cs){if(c.url.includes('GLuS-Beerpong')&&'focus'in c)return c.focus();}if(clients.openWindow)return clients.openWindow(url);}));});
