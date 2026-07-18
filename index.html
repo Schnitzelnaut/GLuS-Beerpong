@@ -18,7 +18,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v134";
+const APP_VERSION = "glus-v135";
 
 // Eindeutige, deterministische ID aus dem GESAMTEN Endpoint (djb2).
 // WICHTIG: Der Worker nutzt exakt dieselbe Funktion — sonst stimmen Speichern
@@ -95,7 +95,7 @@ async function ensurePushSubscription() {
 // Benachrichtigung an Worker schicken
 async function sendNotification(type, data) {
   try {
-    await fetch(`${PUSH_WORKER_URL}/notify`, {
+    const res = await fetch(`${PUSH_WORKER_URL}/notify`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -105,8 +105,12 @@ async function sendNotification(type, data) {
         data
       })
     });
+    return await res.json(); // { ok, sent, failed } oder { ok:false, error }
   } catch (e) {
-    console.warn('Push failed:', e);
+    return {
+      ok: false,
+      error: e.message
+    };
   }
 }
 async function writeBet(bet) {
@@ -3926,13 +3930,70 @@ function PasswordResetRequest({
 }
 function GartenRuftButton() {
   const [loading, setLoading] = useState(false);
-  const [sent, setSent] = useState(false);
+  const [result, setResult] = useState(null); // {sent, failed} | {error}
+  const [diag, setDiag] = useState(null);
+  const [diagRunning, setDiagRunning] = useState(false);
   async function rufen() {
     setLoading(true);
-    await sendNotification('garten', {});
-    setSent(true);
+    setResult(null);
+    try {
+      const r = await sendNotification('garten', {});
+      if (r && r.ok) setResult({
+        sent: r.sent ?? 0,
+        failed: r.failed ?? 0
+      });else setResult({
+        error: r && r.error || "Unbekannter Fehler vom Server"
+      });
+    } catch (e) {
+      setResult({
+        error: "Worker nicht erreichbar (" + e.message + ")"
+      });
+    }
     setLoading(false);
-    setTimeout(() => setSent(false), 3000);
+    setTimeout(() => setResult(null), 8000);
+  }
+  async function diagnose() {
+    setDiagRunning(true);
+    const out = [];
+    // 1. Worker erreichbar?
+    try {
+      const r = await fetch(PUSH_WORKER_URL);
+      out.push(r.ok ? "✅ Worker erreichbar" : `❌ Worker antwortet mit ${r.status}`);
+    } catch (e) {
+      out.push("❌ Worker NICHT erreichbar — nicht deployed?");
+    }
+    // 2. Browser-Support?
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      out.push("❌ Browser unterstützt kein Push");
+    } else {
+      out.push("✅ Browser unterstützt Push");
+      // 3. Permission?
+      out.push(Notification.permission === 'granted' ? "✅ Erlaubnis erteilt" : `❌ Erlaubnis: ${Notification.permission}`);
+      // 4. Subscription vorhanden?
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          out.push("✅ Gerät hat eine Subscription");
+          // 5. Ist sie in Firebase?
+          const id = pushSubId(sub.endpoint);
+          const fb = await fetchFirebase(`${PUSH_SUBS_PATH}/${id}`);
+          out.push(fb ? "✅ Subscription ist in Firebase gespeichert" : "❌ Subscription FEHLT in Firebase");
+        } else {
+          out.push("❌ Gerät hat KEINE Subscription — Benachrichtigungen neu aktivieren");
+        }
+      } catch (e) {
+        out.push("❌ Fehler beim Prüfen der Subscription");
+      }
+    }
+    // 6. Wie viele Subs total?
+    try {
+      const all = await fetchFirebase(PUSH_SUBS_PATH);
+      const n = all ? Object.keys(all).length : 0;
+      out.push(`📊 ${n} Gerät(e) insgesamt registriert`);
+    } catch {}
+    setDiag(out);
+    setDiagRunning(false);
   }
   return /*#__PURE__*/React.createElement("div", {
     className: "card",
@@ -3953,12 +4014,43 @@ function GartenRuftButton() {
     style: {
       margin: 0,
       width: "100%",
-      background: sent ? "#8bc34a" : "",
-      color: sent ? "#0e1a0e" : ""
+      background: result && !result.error ? "#8bc34a" : "",
+      color: result && !result.error ? "#0e1a0e" : ""
     },
     disabled: loading,
     onClick: rufen
-  }, loading ? "Wird gesendet..." : sent ? "✓ Gesendet!" : "🌿 Garten ruft an!"));
+  }, loading ? "Wird gesendet..." : "🌿 Garten ruft an!"), result && !result.error && /*#__PURE__*/React.createElement("div", {
+    className: "info-box",
+    style: {
+      marginTop: 10,
+      marginBottom: 0
+    }
+  }, "📤 An ", /*#__PURE__*/React.createElement("strong", null, result.sent), " Gerät(e) gesendet", result.failed > 0 ? `, ${result.failed} fehlgeschlagen` : "", ".", result.sent === 0 && " — Niemand hat eine gültige Subscription. Lauf mal die Diagnose."), result && result.error && /*#__PURE__*/React.createElement("div", {
+    className: "info-box",
+    style: {
+      marginTop: 10,
+      marginBottom: 0,
+      borderColor: "#c62828"
+    }
+  }, "❌ ", result.error), /*#__PURE__*/React.createElement("button", {
+    className: "demo-btn",
+    style: {
+      width: "100%",
+      marginTop: 8
+    },
+    disabled: diagRunning,
+    onClick: diagnose
+  }, diagRunning ? "Prüfe..." : "🔍 Push-Diagnose"), diag && /*#__PURE__*/React.createElement("div", {
+    className: "info-box",
+    style: {
+      marginTop: 10,
+      marginBottom: 0,
+      fontSize: 13,
+      lineHeight: 1.7
+    }
+  }, diag.map((line, i) => /*#__PURE__*/React.createElement("div", {
+    key: i
+  }, line))));
 }
 function AdminPasswordResets() {
   const [resets, setResets] = useState([]);
