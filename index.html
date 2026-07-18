@@ -18,7 +18,7 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v136";
+const APP_VERSION = "glus-v137";
 
 // Eindeutige, deterministische ID aus dem GESAMTEN Endpoint (djb2).
 // WICHTIG: Der Worker nutzt exakt dieselbe Funktion — sonst stimmen Speichern
@@ -74,6 +74,7 @@ async function ensurePushSubscription() {
       bet_settled: true,
       new_match: true,
       new_season: true,
+      new_gameday: true,
       garten: true
     };
     await writeFirebase(`${PUSH_SUBS_PATH}/${id}`, {
@@ -4182,6 +4183,7 @@ function PushNotificationSettings() {
     bet_settled: true,
     new_match: true,
     new_season: true,
+    new_gameday: true,
     garten: true
   });
   const PREF_LABELS = {
@@ -4189,6 +4191,7 @@ function PushNotificationSettings() {
     bet_settled: '🏆 Wette abgerechnet',
     new_match: '⚔️ Neues Spiel eingetragen',
     new_season: '🏟️ Neue Saison gestartet',
+    new_gameday: '📅 Neuer Spieltag',
     garten: '🌿 Garten ruft!'
   };
   useEffect(() => {
@@ -7997,6 +8000,14 @@ function LigaApp({
         id,
         ...ev
       }]
+    });
+    // Alle benachrichtigen
+    const dt = new Date(ev.day + "T00:00:00");
+    const wd = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"][dt.getDay()];
+    const datum = `${wd}, ${dt.getDate()}.${dt.getMonth() + 1}.`;
+    const text = `${ev.title} — ${datum}${ev.time ? ` um ${ev.time} Uhr` : ""}`;
+    sendNotification('new_gameday', {
+      text
     });
   }
   function deleteCalendarEvent(id) {
