@@ -18,11 +18,23 @@ const BETS_FB_PATH = "bets";
 const PUSH_SUBS_PATH = "push_subscriptions";
 const PUSH_WORKER_URL = "https://glus-push.pascalpredehl.workers.dev";
 const VAPID_PUBLIC_KEY = "BFZbn5MO6W2Z7E0x7ddSY9xIzEWGYydlrHeCmxdVKHnZS9WXwPCxEyrjGLbS2ZscdCSnuTL5QHEv8_W79doWO74";
-const APP_VERSION = "glus-v133";
+const APP_VERSION = "glus-v134";
+
+// Eindeutige, deterministische ID aus dem GESAMTEN Endpoint (djb2).
+// WICHTIG: Der Worker nutzt exakt dieselbe Funktion — sonst stimmen Speichern
+// und Aufräumen nicht überein und Subscriptions gehen verloren.
+function pushSubId(endpoint) {
+  let h = 5381;
+  for (let i = 0; i < endpoint.length; i++) {
+    h = (h << 5) + h ^ endpoint.charCodeAt(i);
+    h = h & h;
+  }
+  return "s" + Math.abs(h).toString(36);
+}
 
 // Push-Subscription in Firebase speichern
 async function savePushSubscription(sub) {
-  const id = btoa(sub.endpoint).slice(0, 32).replace(/[^a-zA-Z0-9]/g, '');
+  const id = pushSubId(sub.endpoint);
   await writeFirebase(`${PUSH_SUBS_PATH}/${id}`, {
     endpoint: sub.endpoint,
     keys: {
@@ -33,8 +45,51 @@ async function savePushSubscription(sub) {
   });
 }
 async function removePushSubscription(sub) {
-  const id = btoa(sub.endpoint).slice(0, 32).replace(/[^a-zA-Z0-9]/g, '');
+  const id = pushSubId(sub.endpoint);
   await writeFirebase(`${PUSH_SUBS_PATH}/${id}`, null);
+}
+
+// Stellt sicher, dass eine gültige Push-Subscription existiert und in Firebase
+// aktuell ist. Läuft bei jedem App-Start (nicht nur in den Einstellungen), damit
+// Subscriptions nach Updates / Browser-Erneuerung nicht "tot" in Firebase liegen.
+// Gibt die subId zurück oder null.
+async function ensurePushSubscription() {
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+    if (Notification.permission !== 'granted') return null;
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      // Keine Subscription (z.B. nach Update / Browser hat sie verworfen) → neu anlegen
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      });
+    }
+    const id = pushSubId(sub.endpoint);
+    // Bestehende Prefs behalten, sonst Default (alles an)
+    const fbSub = await fetchFirebase(`${PUSH_SUBS_PATH}/${id}`);
+    const prefs = fbSub?.prefs || {
+      new_bet: true,
+      bet_settled: true,
+      new_match: true,
+      new_season: true,
+      garten: true
+    };
+    await writeFirebase(`${PUSH_SUBS_PATH}/${id}`, {
+      endpoint: sub.endpoint,
+      keys: {
+        p256dh: sub.toJSON().keys.p256dh,
+        auth: sub.toJSON().keys.auth
+      },
+      savedAt: Date.now(),
+      prefs
+    });
+    return id;
+  } catch (e) {
+    console.warn('ensurePushSubscription failed:', e);
+    return null;
+  }
 }
 
 // Benachrichtigung an Worker schicken
@@ -4053,7 +4108,7 @@ function PushNotificationSettings() {
             userVisibleOnly: true,
             applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
           });
-          const id = btoa(newSub.endpoint).slice(0, 32).replace(/[^a-zA-Z0-9]/g, '');
+          const id = pushSubId(newSub.endpoint);
           setSubId(id);
           const savedPrefs = await fetchFirebase(`${PUSH_SUBS_PATH}/${id}/prefs`);
           const currentPrefs = savedPrefs || prefs;
@@ -4074,7 +4129,7 @@ function PushNotificationSettings() {
         return;
       }
       // Subscription da — immer frisch in Firebase schreiben
-      const id = btoa(sub.endpoint).slice(0, 32).replace(/[^a-zA-Z0-9]/g, '');
+      const id = pushSubId(sub.endpoint);
       setSubId(id);
       const fbSub = await fetchFirebase(`${PUSH_SUBS_PATH}/${id}`);
       const currentPrefs = fbSub?.prefs || prefs;
@@ -4093,7 +4148,7 @@ function PushNotificationSettings() {
     });
   }, []);
   async function getSubId(sub) {
-    return btoa(sub.endpoint).slice(0, 32).replace(/[^a-zA-Z0-9]/g, '');
+    return pushSubId(sub.endpoint);
   }
   async function subscribe() {
     setLoading(true);
@@ -12198,6 +12253,34 @@ function RootApp() {
       localStorage.setItem("glus_mode", mode);
     } catch {}
   }, [mode]);
+
+  // Push-Subscription am Leben halten: bei jedem App-Start UND nach jedem
+  // Service-Worker-Wechsel (Update) sicherstellen dass eine gültige Subscription
+  // in Firebase liegt. Das ist der Fix für "Benachrichtigungen brechen nach Update ab".
+  useEffect(() => {
+    let cancelled = false;
+    async function refresh() {
+      // Kurz warten bis der (neue) SW wirklich aktiv ist
+      try {
+        await navigator.serviceWorker?.ready;
+      } catch {}
+      if (!cancelled) await ensurePushSubscription();
+    }
+    refresh();
+    // Nach SW-Update (controllerchange) erneut absichern
+    const onControllerChange = () => refresh();
+    navigator.serviceWorker?.addEventListener?.('controllerchange', onControllerChange);
+    // Wenn die App wieder in den Vordergrund kommt, ebenfalls prüfen
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      navigator.serviceWorker?.removeEventListener?.('controllerchange', onControllerChange);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, []);
   if (mode === "liga") return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(UpdateBanner, null), /*#__PURE__*/React.createElement(LigaApp, {
     onSwitchToTurnier: () => {
       setMode("turniere");
